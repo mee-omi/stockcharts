@@ -1,0 +1,1 @@
+{"root":["./src/App.tsx","./src/main.tsx","./src/vite-env.d.ts","./src/api/client.ts","./src/api/types.ts","./src/components/Chart.tsx","./src/components/IndicatorPanel.tsx","./src/components/StockSearch.tsx","./src/components/TimeframeBar.tsx","./src/ws/stomp.ts"],"errors":true,"version":"5.9.3"}

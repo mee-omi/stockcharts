@@ -1,0 +1,28 @@
+# Java / Maven
+backend/target/
+*.class
+*.jar
+!.mvn/wrapper/maven-wrapper.jar
+
+# Python
+data-service/__pycache__/
+data-service/**/__pycache__/
+data-service/.venv/
+*.pyc
+
+# Node / React
+frontend/node_modules/
+frontend/dist/
+frontend/.vite/
+
+# Env / secrets
+.env
+*.local
+k8s/overlays/prod/enctoken.secret.yaml
+k8s/overlays/prod/broker.secret.yaml
+
+# IDE / OS
+.idea/
+.vscode/
+*.iml
+.DS_Store

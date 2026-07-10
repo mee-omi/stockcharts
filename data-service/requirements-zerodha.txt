@@ -1,0 +1,4 @@
+# Optional: real Zerodha data via PyZData (enctoken auth).
+# Install on top of requirements.txt when MARKET_DATA_PROVIDER=zerodha.
+pandas>=2.2.0
+pyzdata>=1.0.0

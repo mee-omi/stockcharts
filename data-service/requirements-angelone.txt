@@ -1,0 +1,5 @@
+# Angel One SmartAPI trading and market data.
+# Install on top of requirements.txt when TRADING_BROKER=angelone or MARKET_DATA_PROVIDER=angelone.
+smartapi-python>=1.3.10
+pyotp>=2.9.0
+websocket-client>=1.7.0

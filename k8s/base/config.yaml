@@ -1,0 +1,51 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: db-config
+data:
+  POSTGRES_DB: stockcharts
+  POSTGRES_USER: stockcharts
+  PGDATA: /var/lib/postgresql/data/pgdata
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: app-config
+data:
+  # mock = synthetic data (no credentials). Overlays may switch to "zerodha", "angelone", etc.
+  MARKET_DATA_PROVIDER: "mock"
+  # mock = paper trading (virtual cash). Overlays may switch to "zerodha" or "angelone".
+  TRADING_BROKER: "mock"
+  DATA_SERVICE_URL: "http://data-service:8000"
+  POSTGRES_HOST: "timescaledb"
+  POSTGRES_PORT: "5432"
+  POSTGRES_DB: "stockcharts"
+  POSTGRES_USER: "stockcharts"
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: db-secret
+type: Opaque
+stringData:
+  POSTGRES_PASSWORD: "stockcharts"
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: app-secret
+type: Opaque
+stringData:
+  POSTGRES_PASSWORD: "stockcharts"
+  # ---- Zerodha market data (PyZData / enctoken) ----
+  # Required when MARKET_DATA_PROVIDER=zerodha or kiteticker.
+  ENCTOKEN: ""
+  # ---- Zerodha trading (Kite Connect, paid subscription) ----
+  # Required when TRADING_BROKER=zerodha.
+  ZERODHA_API_KEY: ""
+  ZERODHA_ACCESS_TOKEN: ""
+  # ---- Angel One SmartAPI ----
+  # Required when TRADING_BROKER=angelone or MARKET_DATA_PROVIDER=angelone.
+  ANGELONE_API_KEY: ""
+  ANGELONE_CLIENT_ID: ""
+  ANGELONE_TOTP_SECRET: ""

@@ -1,0 +1,562 @@
+import { useCallback, useEffect, useState } from 'react'
+import AsyncSelect from 'react-select/async'
+import {
+  cancelOrder,
+  getFunds,
+  getHoldings,
+  getOrders,
+  getPositions,
+  placeOrder,
+} from '../api/client'
+import { searchInstruments } from '../api/client'
+import type {
+  Funds,
+  Holding,
+  Order,
+  OrderType,
+  PlaceOrderRequest,
+  Position,
+  Positions,
+  ProductType,
+  TradeMarker,
+  TransactionType,
+} from '../api/types'
+
+type TradingTab = 'order' | 'orders' | 'positions' | 'holdings' | 'funds'
+
+interface SymbolOption {
+  value: string
+  label: string
+}
+
+const fmt = (n: number) =>
+  new Intl.NumberFormat('en-IN', { maximumFractionDigits: 2 }).format(n)
+
+const pnlClass = (n: number) => (n >= 0 ? 'pnl-pos' : 'pnl-neg')
+
+// ---------------------------------------------------------------------------
+// Order form — used in both compact (chart-side) and full modes
+// ---------------------------------------------------------------------------
+
+interface OrderFormProps {
+  onOrderPlaced: (marker: TradeMarker) => void
+  /** Pre-fill symbol from the active chart */
+  defaultSymbol?: string
+  /** Replay mode: orders are stamped with the current bar's time */
+  replayMode?: boolean
+  replayBarTime?: number
+  replayBarPrice?: number
+  compact?: boolean
+}
+
+function OrderForm({
+  onOrderPlaced,
+  defaultSymbol,
+  replayMode,
+  replayBarTime,
+  replayBarPrice,
+  compact,
+}: OrderFormProps) {
+  const [selectedOption, setSelectedOption] = useState<SymbolOption | null>(
+    defaultSymbol ? { value: defaultSymbol, label: defaultSymbol } : null,
+  )
+  const [symbol, setSymbol] = useState(defaultSymbol ?? '')
+  const [exchange, setExchange] = useState('NSE')
+  const [txnType, setTxnType] = useState<TransactionType>('BUY')
+  const [orderType, setOrderType] = useState<OrderType>('MARKET')
+  const [product, setProduct] = useState<ProductType>('MIS')
+  const [qty, setQty] = useState('')
+  const [price, setPrice] = useState('')
+  const [triggerPrice, setTriggerPrice] = useState('')
+  const [busy, setBusy] = useState(false)
+  const [status, setStatus] = useState<{ ok: boolean; msg: string } | null>(null)
+
+  // Sync symbol when the chart changes the active stock.
+  useEffect(() => {
+    if (!defaultSymbol) return
+    setSymbol(defaultSymbol)
+    setSelectedOption({ value: defaultSymbol, label: defaultSymbol })
+  }, [defaultSymbol])
+
+  // Pre-fill price with current bar's close in replay mode.
+  useEffect(() => {
+    if (replayMode && replayBarPrice) {
+      setPrice(String(replayBarPrice))
+    }
+  }, [replayMode, replayBarPrice])
+
+  const needsPrice = orderType === 'LIMIT' || orderType === 'SL'
+  const needsTrigger = orderType === 'SL' || orderType === 'SL-M'
+
+  const submit = async () => {
+    if (!symbol || !qty || parseInt(qty) < 1) {
+      setStatus({ ok: false, msg: 'Symbol and quantity are required.' })
+      return
+    }
+    setBusy(true)
+    setStatus(null)
+    const req: PlaceOrderRequest = {
+      symbol,
+      exchange,
+      transaction_type: txnType,
+      order_type: orderType,
+      product,
+      quantity: parseInt(qty),
+      price: needsPrice && price ? parseFloat(price) : undefined,
+      trigger_price: needsTrigger && triggerPrice ? parseFloat(triggerPrice) : undefined,
+      tag: replayMode ? 'replay' : undefined,
+    }
+    try {
+      const order = await placeOrder(req)
+      setStatus({ ok: true, msg: `${order.status} — ${order.order_id}` })
+      // Build the chart marker — use replay bar time if in replay mode.
+      const markerTime = replayMode && replayBarTime
+        ? replayBarTime
+        : Math.floor(Date.now() / 1000)
+      const markerPrice = order.average_price || (replayMode && replayBarPrice ? replayBarPrice : parseFloat(price) || 0)
+      onOrderPlaced({
+        time: markerTime,
+        side: txnType,
+        price: markerPrice,
+        quantity: parseInt(qty),
+        orderId: order.order_id,
+      })
+      setQty('')
+      if (!replayMode) setPrice('')
+      setTriggerPrice('')
+    } catch (e: any) {
+      setStatus({ ok: false, msg: e?.response?.data?.detail ?? e?.message ?? 'Order failed' })
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const loadOptions = async (input: string): Promise<SymbolOption[]> => {
+    const list = await searchInstruments(input)
+    return list.slice(0, 50).map((i) => ({ value: i.symbol, label: `${i.symbol} — ${i.name}` }))
+  }
+
+  return (
+    <div className={`order-form${compact ? ' order-form-compact' : ''}`}>
+      {replayMode && replayBarPrice && (
+        <div className="replay-price-badge">
+          ⏵ Replay — bar close: <strong>₹{fmt(replayBarPrice)}</strong>
+        </div>
+      )}
+
+      <div className="of-row">
+        <label>Symbol</label>
+        <AsyncSelect<SymbolOption>
+          cacheOptions
+          defaultOptions
+          loadOptions={loadOptions}
+          placeholder="Search symbol…"
+          value={selectedOption}
+          onChange={(opt) => {
+            if (opt) { setSelectedOption(opt); setSymbol(opt.value) }
+          }}
+          classNamePrefix="stocksel"
+          styles={{
+            control: (b) => ({ ...b, background: '#161b22', borderColor: '#30363d', minHeight: 36 }),
+            menu: (b) => ({ ...b, background: '#161b22', zIndex: 50 }),
+            input: (b) => ({ ...b, color: '#e6edf3' }),
+            singleValue: (b) => ({ ...b, color: '#e6edf3' }),
+            placeholder: (b) => ({ ...b, color: '#8b949e' }),
+            option: (b, s) => ({ ...b, background: s.isFocused ? '#21262d' : 'transparent', color: '#e6edf3', cursor: 'pointer' }),
+          }}
+        />
+      </div>
+
+      <div className="of-row">
+        <label>Action</label>
+        <div className="of-seg">
+          <button className={`seg-btn buy ${txnType === 'BUY' ? 'active' : ''}`}
+                  onClick={() => setTxnType('BUY')}>BUY</button>
+          <button className={`seg-btn sell ${txnType === 'SELL' ? 'active' : ''}`}
+                  onClick={() => setTxnType('SELL')}>SELL</button>
+        </div>
+      </div>
+
+      {!compact && (
+        <div className="of-row">
+          <label>Exchange</label>
+          <div className="of-seg">
+            {(['NSE', 'BSE'] as const).map((ex) => (
+              <button key={ex} className={`seg-btn ${exchange === ex ? 'active' : ''}`}
+                      onClick={() => setExchange(ex)}>{ex}</button>
+            ))}
+          </div>
+        </div>
+      )}
+
+      <div className="of-row">
+        <label>Product</label>
+        <div className="of-seg">
+          {(['MIS', 'CNC', 'NRML'] as const).map((p) => (
+            <button key={p} className={`seg-btn ${product === p ? 'active' : ''}`}
+                    onClick={() => setProduct(p)}>{p}</button>
+          ))}
+        </div>
+      </div>
+
+      <div className="of-row">
+        <label>Order type</label>
+        <select className="of-select" value={orderType}
+                onChange={(e) => setOrderType(e.target.value as OrderType)}>
+          <option value="MARKET">MARKET</option>
+          <option value="LIMIT">LIMIT</option>
+          <option value="SL">SL (Stop-Loss Limit)</option>
+          <option value="SL-M">SL-M (Stop-Loss Market)</option>
+        </select>
+      </div>
+
+      <div className="of-row">
+        <label>Quantity</label>
+        <input className="of-input" type="number" min="1" placeholder="e.g. 10"
+               value={qty} onChange={(e) => setQty(e.target.value)} />
+      </div>
+
+      {(needsPrice || (replayMode && orderType === 'MARKET')) && (
+        <div className="of-row">
+          <label>{needsPrice ? 'Price (₹)' : 'Fill price (₹)'}</label>
+          <input className="of-input" type="number" min="0" step="0.05"
+                 placeholder={replayMode ? 'Bar close price' : 'Limit price'}
+                 value={price} onChange={(e) => setPrice(e.target.value)} />
+        </div>
+      )}
+
+      {needsTrigger && (
+        <div className="of-row">
+          <label>Trigger (₹)</label>
+          <input className="of-input" type="number" min="0" step="0.05" placeholder="Trigger price"
+                 value={triggerPrice} onChange={(e) => setTriggerPrice(e.target.value)} />
+        </div>
+      )}
+
+      <div className="of-actions">
+        <button
+          className={`of-submit ${txnType === 'BUY' ? 'buy' : 'sell'}`}
+          onClick={submit}
+          disabled={busy}
+        >
+          {busy ? 'Placing…' : `${txnType} ${symbol || '—'}`}
+        </button>
+        {status && (
+          <span className={`ci-status ${status.ok ? 'ok' : 'err'}`}>{status.msg}</span>
+        )}
+      </div>
+    </div>
+  )
+}
+
+function MiniOrderList({ refresh }: { refresh: number }) {
+  const [orders, setOrders] = useState<Order[]>([])
+
+  const load = useCallback(() => {
+    getOrders().then((all) => setOrders(all.slice(0, 6))).catch(() => {})
+  }, [])
+  useEffect(() => { load() }, [load, refresh])
+
+  if (!orders.length) return <div className="trade-empty" style={{ fontSize: 12 }}>No orders yet.</div>
+
+  const statusClass = (s: string) => {
+    if (s === 'COMPLETE') return 'os-complete'
+    if (s === 'CANCELLED' || s === 'REJECTED') return 'os-cancelled'
+    return 'os-open'
+  }
+
+  return (
+    <div className="mini-orders">
+      {orders.map((o) => (
+        <div key={o.order_id} className="mini-order-row">
+          <span className={`txn-badge ${o.transaction_type === 'BUY' ? 'buy' : 'sell'}`}>
+            {o.transaction_type[0]}
+          </span>
+          <span className="mini-order-sym">{o.symbol}</span>
+          <span className="mini-order-qty">{o.quantity}</span>
+          <span className="mini-order-price">₹{fmt(o.average_price || o.price)}</span>
+          <span className={`order-status ${statusClass(o.status)}`}>{o.status}</span>
+        </div>
+      ))}
+    </div>
+  )
+}
+
+function OrderBook({ refresh }: { refresh: number }) {
+  const [orders, setOrders] = useState<Order[]>([])
+  const [loading, setLoading] = useState(false)
+  const [err, setErr] = useState<string | null>(null)
+
+  const load = useCallback(() => {
+    setLoading(true)
+    getOrders()
+      .then(setOrders)
+      .catch(() => setErr('Failed to load orders'))
+      .finally(() => setLoading(false))
+  }, [])
+
+  useEffect(() => { load() }, [load, refresh])
+
+  const cancel = async (id: string) => {
+    try { await cancelOrder(id); load() } catch { setErr('Cancel failed') }
+  }
+
+  const statusClass = (s: string) => {
+    if (s === 'COMPLETE') return 'os-complete'
+    if (s === 'CANCELLED' || s === 'REJECTED') return 'os-cancelled'
+    return 'os-open'
+  }
+
+  if (loading) return <div className="trade-empty">Loading orders…</div>
+  if (err) return <div className="trade-empty err">{err}</div>
+  if (!orders.length) return <div className="trade-empty">No orders today.</div>
+
+  return (
+    <div className="trade-table-wrap">
+      <table className="trade-table">
+        <thead>
+          <tr>
+            <th>Symbol</th><th>Type</th><th>Qty</th>
+            <th className="num">Price</th><th className="num">Avg</th>
+            <th>Status</th><th></th>
+          </tr>
+        </thead>
+        <tbody>
+          {orders.map((o) => (
+            <tr key={o.order_id}>
+              <td>
+                <span className={`txn-badge ${o.transaction_type === 'BUY' ? 'buy' : 'sell'}`}>
+                  {o.transaction_type}
+                </span>
+                {' '}<strong>{o.symbol}</strong>
+              </td>
+              <td><small>{o.order_type} · {o.product}</small></td>
+              <td>{o.filled_quantity}/{o.quantity}</td>
+              <td className="num">{fmt(o.price)}</td>
+              <td className="num">{o.average_price ? fmt(o.average_price) : '—'}</td>
+              <td>
+                <span className={`order-status ${statusClass(o.status)}`}>{o.status}</span>
+                {o.message && <div className="order-msg">{o.message}</div>}
+              </td>
+              <td>
+                {o.status === 'OPEN' && (
+                  <button className="cancel-btn" onClick={() => cancel(o.order_id)}>✕</button>
+                )}
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  )
+}
+
+function PositionsTab() {
+  const [positions, setPositions] = useState<Positions | null>(null)
+  const [loading, setLoading] = useState(false)
+
+  useEffect(() => {
+    setLoading(true)
+    getPositions().then(setPositions).catch(() => {}).finally(() => setLoading(false))
+  }, [])
+
+  if (loading) return <div className="trade-empty">Loading positions…</div>
+  const net = positions?.net ?? []
+  if (!net.length) return <div className="trade-empty">No open positions.</div>
+
+  return (
+    <div className="trade-table-wrap">
+      <table className="trade-table">
+        <thead>
+          <tr>
+            <th>Symbol</th><th>Product</th>
+            <th className="num">Qty</th><th className="num">Avg Price</th>
+            <th className="num">LTP</th><th className="num">P&amp;L</th>
+          </tr>
+        </thead>
+        <tbody>
+          {net.map((p: Position) => (
+            <tr key={`${p.symbol}-${p.product}`}>
+              <td><strong>{p.symbol}</strong><br /><small className="muted">{p.exchange}</small></td>
+              <td><small>{p.product}</small></td>
+              <td className="num">{p.quantity}</td>
+              <td className="num">{fmt(p.average_price)}</td>
+              <td className="num">{fmt(p.last_price)}</td>
+              <td className={`num ${pnlClass(p.pnl)}`}>{p.pnl >= 0 ? '+' : ''}{fmt(p.pnl)}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  )
+}
+
+function HoldingsTab() {
+  const [holdings, setHoldings] = useState<Holding[]>([])
+  const [loading, setLoading] = useState(false)
+
+  useEffect(() => {
+    setLoading(true)
+    getHoldings().then(setHoldings).catch(() => {}).finally(() => setLoading(false))
+  }, [])
+
+  if (loading) return <div className="trade-empty">Loading holdings…</div>
+  if (!holdings.length) return <div className="trade-empty">No holdings.</div>
+
+  return (
+    <div className="trade-table-wrap">
+      <table className="trade-table">
+        <thead>
+          <tr>
+            <th>Symbol</th><th className="num">Qty</th><th className="num">Avg Price</th>
+            <th className="num">LTP</th><th className="num">P&amp;L</th><th className="num">%</th>
+          </tr>
+        </thead>
+        <tbody>
+          {holdings.map((h) => (
+            <tr key={h.symbol}>
+              <td><strong>{h.symbol}</strong><br /><small className="muted">{h.exchange}</small></td>
+              <td className="num">{h.quantity}</td>
+              <td className="num">{fmt(h.average_price)}</td>
+              <td className="num">{fmt(h.last_price)}</td>
+              <td className={`num ${pnlClass(h.pnl)}`}>{h.pnl >= 0 ? '+' : ''}{fmt(h.pnl)}</td>
+              <td className={`num ${pnlClass(h.pnl_percent)}`}>
+                {h.pnl_percent >= 0 ? '+' : ''}{fmt(h.pnl_percent)}%
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  )
+}
+
+function FundsTab() {
+  const [funds, setFunds] = useState<Funds | null>(null)
+  const [loading, setLoading] = useState(false)
+
+  useEffect(() => {
+    setLoading(true)
+    getFunds().then(setFunds).catch(() => {}).finally(() => setLoading(false))
+  }, [])
+
+  if (loading) return <div className="trade-empty">Loading funds…</div>
+  if (!funds) return <div className="trade-empty">No fund data.</div>
+
+  return (
+    <div className="funds-grid">
+      <div className="funds-card">
+        <div className="funds-label">Available Cash</div>
+        <div className="funds-value">₹{fmt(funds.available_cash)}</div>
+      </div>
+      <div className="funds-card">
+        <div className="funds-label">Available Margin</div>
+        <div className="funds-value">₹{fmt(funds.available_margin)}</div>
+      </div>
+      <div className="funds-card">
+        <div className="funds-label">Used Margin</div>
+        <div className="funds-value used">₹{fmt(funds.used_margin)}</div>
+      </div>
+      <div className="funds-card">
+        <div className="funds-label">Total Balance</div>
+        <div className="funds-value total">₹{fmt(funds.total_balance)}</div>
+      </div>
+    </div>
+  )
+}
+
+// ---------------------------------------------------------------------------
+// Main TradingPanel — full mode OR compact (chart-side) mode
+// ---------------------------------------------------------------------------
+
+const FULL_TABS: { id: TradingTab; label: string }[] = [
+  { id: 'order', label: 'Place Order' },
+  { id: 'orders', label: 'Orders' },
+  { id: 'positions', label: 'Positions' },
+  { id: 'holdings', label: 'Holdings' },
+  { id: 'funds', label: 'Funds' },
+]
+
+interface TradingPanelProps {
+  /** When true, shows a compact order-form + mini order list beside the chart. */
+  compact?: boolean
+  /** Current chart symbol — pre-fills the order form. */
+  defaultSymbol?: string
+  /** Whether chart replay mode is active. */
+  replayMode?: boolean
+  /** Current replay bar's epoch-seconds timestamp. */
+  replayBarTime?: number
+  /** Current replay bar's close price. */
+  replayBarPrice?: number
+  /** Called after a successful order so the chart can add a marker. */
+  onTradeMarker?: (marker: TradeMarker) => void
+}
+
+export default function TradingPanel({
+  compact,
+  defaultSymbol,
+  replayMode,
+  replayBarTime,
+  replayBarPrice,
+  onTradeMarker,
+}: TradingPanelProps) {
+  const [tab, setTab] = useState<TradingTab>('order')
+  const [orderRefresh, setOrderRefresh] = useState(0)
+
+  const handleOrderPlaced = (marker: TradeMarker) => {
+    setOrderRefresh((n) => n + 1)
+    onTradeMarker?.(marker)
+  }
+
+  // ---------- Compact (chart-side) mode ----------
+  if (compact) {
+    return (
+      <div className="trade-compact">
+        <div className="trade-compact-title">Quick Trade</div>
+        <OrderForm
+          onOrderPlaced={handleOrderPlaced}
+          defaultSymbol={defaultSymbol}
+          replayMode={replayMode}
+          replayBarTime={replayBarTime}
+          replayBarPrice={replayBarPrice}
+          compact
+        />
+        <div className="trade-compact-orders-label">Recent orders</div>
+        <MiniOrderList refresh={orderRefresh} />
+      </div>
+    )
+  }
+
+  // ---------- Full mode ----------
+  return (
+    <div className="trading-panel">
+      <nav className="trade-tabs">
+        {FULL_TABS.map((t) => (
+          <button
+            key={t.id}
+            className={`trade-tab ${tab === t.id ? 'active' : ''}`}
+            onClick={() => setTab(t.id)}
+          >
+            {t.label}
+          </button>
+        ))}
+      </nav>
+      <div className="trade-body">
+        {tab === 'order' && (
+          <OrderForm
+            onOrderPlaced={(m) => { setOrderRefresh((n) => n + 1); onTradeMarker?.(m) }}
+            defaultSymbol={defaultSymbol}
+            replayMode={replayMode}
+            replayBarTime={replayBarTime}
+            replayBarPrice={replayBarPrice}
+          />
+        )}
+        {tab === 'orders' && <OrderBook refresh={orderRefresh} />}
+        {tab === 'positions' && <PositionsTab />}
+        {tab === 'holdings' && <HoldingsTab />}
+        {tab === 'funds' && <FundsTab />}
+      </div>
+    </div>
+  )
+}
+

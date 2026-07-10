@@ -1,0 +1,21 @@
+# Test profile: in-memory H2 (Postgres compatibility mode), no Flyway, schema from entities.
+# Verifies Spring wiring, JPA mappings and the REST/indicator flow without a real DB.
+spring:
+  datasource:
+    url: jdbc:h2:mem:testdb;DB_CLOSE_DELAY=-1;MODE=PostgreSQL;DATABASE_TO_LOWER=TRUE
+    driver-class-name: org.h2.Driver
+    username: sa
+    password: ""
+  jpa:
+    hibernate:
+      ddl-auto: create-drop
+    properties:
+      hibernate:
+        dialect: org.hibernate.dialect.H2Dialect
+  flyway:
+    enabled: false
+
+stockcharts:
+  # Empty → live stream disabled during tests (no data-service needed).
+  live-symbols: []
+  data-service-url: http://localhost:9

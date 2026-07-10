@@ -1,0 +1,45 @@
+server:
+  port: ${BACKEND_PORT:8080}
+
+spring:
+  application:
+    name: stockcharts-backend
+  datasource:
+    url: jdbc:postgresql://${POSTGRES_HOST:localhost}:${POSTGRES_PORT:5432}/${POSTGRES_DB:stockcharts}
+    username: ${POSTGRES_USER:stockcharts}
+    password: ${POSTGRES_PASSWORD:stockcharts}
+  jpa:
+    hibernate:
+      # Flyway owns the schema; avoids validate friction with the TimescaleDB hypertable.
+      ddl-auto: none
+    open-in-view: false
+    properties:
+      hibernate:
+        jdbc:
+          time_zone: UTC
+  flyway:
+    enabled: true
+    baseline-on-migrate: true
+
+# StockCharts-specific configuration
+stockcharts:
+  # Base URL of the Python market-data service.
+  data-service-url: ${DATA_SERVICE_URL:http://localhost:8000}
+  # Symbols whose live ticks are streamed to clients on startup.
+  live-symbols: ${LIVE_SYMBOLS:RELIANCE,TCS,HDFCBANK,INFY,ICICIBANK}
+  # Auto-backfill this many days of 1m history on first request for a symbol.
+  backfill-days: ${BACKFILL_DAYS:5}
+
+springdoc:
+  swagger-ui:
+    path: /swagger-ui.html
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info
+
+logging:
+  level:
+    com.stockcharts: INFO

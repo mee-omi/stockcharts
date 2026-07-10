@@ -1,0 +1,11 @@
+# Groww trading provider — placeholder only.
+# Groww does not have an official public trading or market-data API.
+# This file reserves the slot for when an official SDK becomes available.
+#
+# To implement Groww support:
+#   1. Find a stable Groww SDK or API.
+#   2. Implement GrowwTradingProvider in data-service/app/trading/groww.py.
+#   3. Implement GrowwMarketDataProvider in data-service/app/providers/groww.py.
+#   4. Add real dependencies below and remove this comment.
+#
+# No packages to install for now — the stub raises NotImplementedError on use.

@@ -1,0 +1,29 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+# Prod overlay — real market data and/or live trading broker.
+#
+# Credentials setup (copy example files, fill in values, never commit them):
+#   enctoken.secret.yaml    — Zerodha enctoken for market data
+#   broker.secret.yaml      — trading broker credentials
+#
+# Both files are gitignored.
+resources:
+  - ../../base
+
+patches:
+  # Switch market data to real Zerodha feed.
+  - target:
+      kind: ConfigMap
+      name: app-config
+    patch: |
+      - op: replace
+        path: /data/MARKET_DATA_PROVIDER
+        value: "zerodha"
+      - op: replace
+        path: /data/TRADING_BROKER
+        value: "zerodha"
+  # Inject Zerodha enctoken for market data.
+  - path: enctoken.secret.yaml
+  # Inject trading broker credentials (Zerodha api_key/access_token or AngelOne).
+  - path: broker.secret.yaml

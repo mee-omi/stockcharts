@@ -1,0 +1,200 @@
+# StockCharts — NSE Technical Charting Platform
+
+A full-stack platform for live and historical technical charting of **all NSE stocks**, sourced
+from **Zerodha Kite** via [PyZData](https://github.com/vikassharma545/Historical-Market-data-From-Zerodha),
+with a **TA4J** indicator engine, a **React PWA** frontend, and **Docker + Kubernetes** deployment.
+
+> Out of the box it runs on a **synthetic mock data provider** — no credentials needed. Point it at
+> real Zerodha data by setting an `enctoken` (see [Configuration](#configuration)).
+
+## Architecture
+
+```
+   React PWA (Vite + TS, mobile + installable)
+        │  REST (axios)        │  STOMP/WebSocket (live ticks)
+        ▼                      ▼
+ ┌─────────────────────────────────────────────┐
+ │  Spring Boot Backend (Java 21)               │
+ │   REST API · own indicator lib + expression  │
+ │   engine · screener · STOMP · JPA + Flyway   │
+ └───────────────┬───────────────┬──────────────┘
+        HTTP pull │     SSE stream │            JDBC
+                  ▼                ▼               ▼
+ ┌──────────────────────────────────┐   ┌──────────────────┐
+ │ Python Data Service (FastAPI)    │   │ PostgreSQL +     │
+ │  pluggable MarketDataProvider:   │   │ TimescaleDB      │
+ │   • mock (default)               │   │ (candle hypertbl)│
+ │   • zerodha (PyZData, enctoken)  │   └──────────────────┘
+ │   • kiteticker (future)          │──▶ Zerodha Kite
+ └──────────────────────────────────┘
+```
+
+Data sourcing (and Zerodha specifics) live in the Python service; Java owns the domain API,
+indicator math, persistence, and the client-facing live socket. Even in mock mode the entire
+HTTP/SSE/STOMP pipeline runs, so switching to real data is configuration-only.
+
+## Tech stack
+
+| Layer | Stack |
+|---|---|
+| Frontend | React 18, TypeScript, Vite, lightweight-charts, react-select, STOMP/SockJS, PWA |
+| Backend | Java 21, Spring Boot 3.3, own `double[]` indicator library + expression engine, Flyway, springdoc/OpenAPI |
+| Data service | Python 3.12, FastAPI, PyZData |
+| Database | PostgreSQL 16 + TimescaleDB |
+| Deploy | Docker (multi-stage), docker-compose, Kubernetes (Kustomize), nginx |
+
+## Quick start (Docker Compose)
+
+```bash
+make up        # builds & starts timescaledb + data-service + backend + frontend
+```
+
+Then open:
+- **Frontend:** http://localhost:8088
+- **Swagger UI:** http://localhost:8080/swagger-ui.html
+- **Data service:** http://localhost:8000/health
+
+Stop with `make down`. Tail logs with `make logs`.
+
+## Local development (without Docker)
+
+Run each service in its own terminal:
+
+```bash
+# 1) Data service
+cd data-service
+python3 -m venv .venv && . .venv/bin/activate
+pip install -r requirements.txt
+MARKET_DATA_PROVIDER=mock uvicorn app.main:app --reload --port 8000
+
+# 2) Backend (needs a PostgreSQL/TimescaleDB at localhost:5432, db/user/pass = stockcharts)
+cd backend
+./mvnw spring-boot:run
+
+# 3) Frontend (proxies /api and /ws to the backend)
+cd frontend
+npm install
+npm run dev      # http://localhost:5173  (also reachable from a phone on the same LAN)
+```
+
+## Configuration
+
+Copy `.env.example` to `.env`. Key settings:
+
+| Variable | Default | Meaning |
+|---|---|---|
+| `MARKET_DATA_PROVIDER` | `mock` | `mock` (synthetic) or `zerodha` (real, needs `ENCTOKEN`) |
+| `ENCTOKEN` | _(empty)_ | Zerodha enctoken — required only for the `zerodha` provider |
+| `DATA_SERVICE_URL` | `http://localhost:8000` | Where the backend reaches the data service |
+| `POSTGRES_*` | `stockcharts` | DB host/port/name/user/password |
+
+### Using real Zerodha data
+
+1. Log in to https://kite.zerodha.com → DevTools → Application → Cookies → copy the `enctoken`.
+2. Set `MARKET_DATA_PROVIDER=zerodha` and `ENCTOKEN=<token>` (the token refreshes on each login).
+3. Install the optional dependency: `pip install -r data-service/requirements-zerodha.txt`
+   (the Docker image: build with `--build-arg ZERODHA=1`).
+
+The `zerodha` provider serves historical/intraday candles directly and emulates a live feed by
+polling the latest 1-minute candle. For a true continuous tick stream, implement the
+`kiteticker` provider (a stub is already wired) with a paid Kite Connect subscription.
+
+## REST API
+
+Base path `/api/v1` (full schema at `/swagger-ui.html`):
+
+| Method | Path | Description |
+|---|---|---|
+| GET | `/instruments?query=` | Search instruments by symbol/name (powers the dropdown) |
+| GET | `/candles/{symbol}?timeframe=1m&from=&to=` | OHLCV candles (`from`/`to` = epoch millis) |
+| GET | `/indicators` | Indicator catalog (types, params, output lines) |
+| POST | `/indicators/apply` | Apply indicators to a symbol; returns candles + aligned series |
+| WS | `/ws` (STOMP) → `/topic/ticks/{symbol}` | Live tick/candle updates |
+| GET/POST/PUT/DELETE | `/custom-indicators` | Manage user-defined expression indicators |
+| POST | `/custom-indicators/validate` | Validate an expression without saving |
+| POST | `/screener/run` | Run an ad-hoc screener over a universe |
+| GET/POST/DELETE | `/screener`, `/screener/{name}/run` | Save / list / run named screeners |
+| GET/POST/DELETE | `/watchlists` | Manage reusable symbol lists |
+
+Timeframes: `1m, 5m, 15m, 30m, 1h, 1d`.
+Built-in indicators: `SMA, EMA, WMA, RSI, MACD, BBANDS, STOCH, ATR, ADX, OBV, VWAP, CCI`.
+
+### Indicators, expressions & screeners
+
+Indicators are computed by our own primitive-`double[]` library (`com.stockcharts.ta`) — no
+BigDecimal, no external TA dependency.
+
+A sandboxed **expression engine** powers custom indicators and screeners. Expressions operate on
+price fields (`open/high/low/close/volume/hl2/hlc3/ohlc4`) and functions
+(`sma, ema, wma, rsi, stdev, macd, bb_upper/bb_middle/bb_lower, atr, adx, stoch_k, stoch_d, obv,
+vwap, cci, highest, lowest, crossover, crossunder, abs, max, min`) with arithmetic, comparison
+(`> < >= <= == !=`) and logical (`and or not`) operators.
+
+- **Custom indicators** — e.g. create `ema_spread = ema(close,9) - ema(close,21)`; it then appears in
+  the indicator catalog and overlays on the chart like a built-in.
+- **Screeners** — a boolean expression evaluated at the latest bar across a universe (NIFTY-50 preset,
+  a custom list, a saved watchlist, or all NSE), returning matching stocks. The UI has a guided
+  condition builder that generates an editable expression.
+
+Example screener:
+```bash
+curl -s -X POST http://localhost:8080/api/v1/screener/run \
+  -H 'Content-Type: application/json' \
+  -d '{"expression":"rsi(close,14) < 30 and close > sma(close,50)","timeframe":"1d",
+       "universe":{"type":"index"},"columns":[{"label":"RSI","expression":"rsi(close,14)"}]}'
+```
+
+Example:
+```bash
+curl -s -X POST http://localhost:8080/api/v1/indicators/apply \
+  -H 'Content-Type: application/json' \
+  -d '{"symbol":"RELIANCE","timeframe":"5m",
+       "indicators":[{"type":"EMA","params":{"period":20}},
+                     {"type":"RSI","params":{"period":14}}]}'
+```
+
+## Kubernetes deployment
+
+Manifests use **Kustomize** (`k8s/base` + `overlays/dev|prod`).
+
+```bash
+# Build images and deploy the dev overlay (mock data) to your cluster:
+make k8s-deploy
+make k8s-status
+
+# Local cluster (kind): load images first
+make kind-load
+
+# Production overlay (real Zerodha data):
+cp k8s/overlays/prod/enctoken.secret.example.yaml k8s/overlays/prod/enctoken.secret.yaml
+# edit it, paste your enctoken, then:
+make k8s-deploy-prod
+```
+
+The Ingress serves the app at `http://stockcharts.local` (add `127.0.0.1 stockcharts.local`
+to `/etc/hosts`), routing `/api` and `/ws` to the backend and `/` to the frontend.
+
+## Mobile & app compatibility
+
+The frontend is a **PWA**: responsive mobile-first layout, an installable manifest, and a service
+worker (offline shell). On Android/iOS, open the site and "Add to Home Screen" to install it as an
+app. The Vite dev server binds to `0.0.0.0`, so a phone on the same network can load it directly.
+For native app-store builds, wrap the PWA with Capacitor (not included).
+
+## Project structure
+
+```
+stockcharts/
+├── data-service/   FastAPI + PyZData (providers/: mock, zerodha, kiteticker)
+├── backend/        Spring Boot (instrument, candle, marketdata, indicator, live, config)
+├── frontend/       React PWA (StockSearch, Chart, IndicatorPanel, TimeframeBar)
+├── k8s/            Kustomize base + dev/prod overlays
+├── docker-compose.yml   Makefile   .env.example
+```
+
+## Testing
+
+```bash
+cd backend && ./mvnw test     # TA4J indicator math + full-context REST integration (H2)
+cd frontend && npm run build  # type-check + production bundle
+```
