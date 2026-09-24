@@ -1,0 +1,58 @@
+# Nightly logical backup of the StockCharts database (pg_dump custom format) to a PVC,
+# keeping BACKUP_RETENTION_DAYS of history. Restore: see scripts/restore-db.sh (docs in README).
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: db-backups
+spec:
+  accessModes: ["ReadWriteOnce"]
+  resources:
+    requests:
+      storage: 10Gi
+---
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: db-backup
+spec:
+  schedule: "30 20 * * *" # 20:30 UTC = 02:00 IST, outside market hours
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      backoffLimit: 2
+      template:
+        spec:
+          restartPolicy: OnFailure
+          containers:
+            - name: pg-dump
+              # Same image as the database, so pg_dump matches the server version.
+              image: timescale/timescaledb:2.17.2-pg16
+              envFrom:
+                - configMapRef: { name: db-config }
+              env:
+                - name: PGPASSWORD
+                  valueFrom:
+                    secretKeyRef: { name: db-secret, key: POSTGRES_PASSWORD }
+                - name: BACKUP_RETENTION_DAYS
+                  value: "14"
+              command: ["/bin/sh", "-c"]
+              args:
+                - |
+                  set -eu
+                  file="/backups/stockcharts-$(date -u +%Y%m%d-%H%M%S).dump"
+                  pg_dump -h timescaledb -U "$POSTGRES_USER" -Fc "$POSTGRES_DB" -f "$file.partial"
+                  mv "$file.partial" "$file"
+                  find /backups -name 'stockcharts-*.dump' -mtime +"$BACKUP_RETENTION_DAYS" -delete
+                  ls -lh /backups
+              volumeMounts:
+                - name: backups
+                  mountPath: /backups
+              resources:
+                requests: { memory: "128Mi", cpu: "100m" }
+                limits: { memory: "512Mi" }
+          volumes:
+            - name: backups
+              persistentVolumeClaim:
+                claimName: db-backups

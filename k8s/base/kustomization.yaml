@@ -11,6 +11,7 @@ resources:
   - backend.yaml
   - frontend.yaml
   - ingress.yaml
+  - backup.yaml
 
 images:
   - name: stockcharts/data-service

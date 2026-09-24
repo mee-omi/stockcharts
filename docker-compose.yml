@@ -26,6 +26,7 @@ services:
       ANGELONE_API_KEY: ${ANGELONE_API_KEY:-}
       ANGELONE_CLIENT_ID: ${ANGELONE_CLIENT_ID:-}
       ANGELONE_TOTP_SECRET: ${ANGELONE_TOTP_SECRET:-}
+      LOG_FORMAT: ${LOG_FORMAT:-}
     ports:
       - "8000:8000"
 
@@ -38,6 +39,14 @@ services:
       POSTGRES_USER: ${POSTGRES_USER:-stockcharts}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-stockcharts}
       DATA_SERVICE_URL: http://data-service:8000
+      # Behind the frontend's nginx, the client IP for rate limiting is in X-Forwarded-For.
+      RATE_LIMIT_TRUST_XFF: "true"
+      # Optional alert delivery channels.
+      TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN:-}
+      TELEGRAM_CHAT_ID: ${TELEGRAM_CHAT_ID:-}
+      ALERTS_WEBHOOK_URL: ${ALERTS_WEBHOOK_URL:-}
+      # SPRING_PROFILES_ACTIVE=json for JSON (structured) logs.
+      SPRING_PROFILES_ACTIVE: ${BACKEND_PROFILES:-}
     depends_on:
       timescaledb:
         condition: service_healthy

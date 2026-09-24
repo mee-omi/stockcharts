@@ -21,6 +21,12 @@ data:
   POSTGRES_PORT: "5432"
   POSTGRES_DB: "stockcharts"
   POSTGRES_USER: "stockcharts"
+  # The backend sits behind the ingress, so the client IP for rate limiting is in X-Forwarded-For.
+  RATE_LIMIT_TRUST_XFF: "true"
+  # Running more than one backend replica? Set CLUSTER_ENABLED=true (ShedLock for scheduled jobs),
+  # enable STOMP_RELAY_ENABLED with a RabbitMQ/ActiveMQ STOMP broker, and LIVE_ENABLED=true on
+  # exactly one replica. The data service holds provider state in memory: keep it at 1 replica.
+  CLUSTER_ENABLED: "false"
 ---
 apiVersion: v1
 kind: Secret
@@ -49,3 +55,7 @@ stringData:
   ANGELONE_API_KEY: ""
   ANGELONE_CLIENT_ID: ""
   ANGELONE_TOTP_SECRET: ""
+  # ---- Alert delivery (optional) ----
+  TELEGRAM_BOT_TOKEN: ""
+  TELEGRAM_CHAT_ID: ""
+  ALERTS_WEBHOOK_URL: ""
