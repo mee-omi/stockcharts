@@ -641,3 +641,13 @@ html, body, #root {
   .chart-area { min-height: 380px; flex: 0 0 auto; }
   .chart-toolbar { padding: 6px 10px; }
 }
+
+/* Backtest scanner */
+.scan-filters { margin-top: 12px; padding-top: 12px; border-top: 1px dashed var(--border); }
+.form-grid label.check { flex-direction: row; align-items: center; gap: 8px; grid-column: span 2; color: var(--text); font-size: 13px; }
+.sig { display: inline-block; font-size: 12px; font-weight: 600; padding: 2px 8px; border-radius: 10px; white-space: nowrap; }
+.sig.entry { background: #26a69a22; color: #26a69a; }
+.sig.exit { background: #ef535022; color: #ef5350; }
+.sig.in_position { background: #58a6ff22; color: #58a6ff; }
+.sig.none { color: var(--muted); }
+.scan-table td.sym .small { font-weight: 400; }

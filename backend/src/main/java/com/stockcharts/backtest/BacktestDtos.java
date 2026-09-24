@@ -1,5 +1,7 @@
 package com.stockcharts.backtest;
 
+import com.stockcharts.screener.dto.ScreenerRequest;
+
 import java.util.List;
 
 /** Request/response shapes for the backtester. Times are epoch seconds (UTC), like candles. */
@@ -41,7 +43,43 @@ public final class BacktestDtos {
                           double commissionPaid, int bars) {
     }
 
+    /**
+     * What the strategy says at the latest bar: ENTRY = entry condition true and flat (would buy/short
+     * at the next open), EXIT = exit condition true while in a position, IN_POSITION = holding, NONE.
+     */
+    public enum SignalState { ENTRY, EXIT, IN_POSITION, NONE }
+
+    /** State at the last bar, before the end-of-data close used for the metrics. */
+    public record Latest(long time, double close, SignalState signal, Long positionSince,
+                         Double positionEntryPrice, Double openPnlPct) {
+    }
+
     public record BacktestResult(String symbol, String timeframe, Metrics metrics, List<Trade> trades,
-                                 List<EquityPoint> equity) {
+                                 List<EquityPoint> equity, Latest latest) {
+    }
+
+    // ---- scanner: one strategy over a universe ----
+
+    public enum ScanSort { TOTAL_RETURN, NET_PROFIT, WIN_RATE, PROFIT_FACTOR, SHARPE, MAX_DRAWDOWN, TRADES }
+
+    /**
+     * @param strategy     the backtest settings; its {@code symbol} is ignored
+     * @param onlySignals  keep only symbols whose latest bar has an ENTRY or EXIT signal
+     */
+    public record ScanRequest(ScreenerRequest.Universe universe, BacktestRequest strategy, ScanSort sortBy,
+                              Integer minTrades, Double minWinRatePct, Double minProfitFactor,
+                              Boolean onlySignals, Integer limit) {
+    }
+
+    public record ScanRow(String symbol, String name, Latest latest, Metrics metrics) {
+    }
+
+    /**
+     * @param evaluated symbols backtested; {@code skipped} had too little data or failed
+     * @param dataAsOf  newest bar time across the scan (epoch seconds), i.e. how fresh the data was
+     */
+    public record ScanResult(String timeframe, int scanned, int evaluated, int matched, int skipped,
+                             boolean truncated, Long dataAsOf, long durationMs, List<ScanRow> rows,
+                             List<String> errors) {
     }
 }

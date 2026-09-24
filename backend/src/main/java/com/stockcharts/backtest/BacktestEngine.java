@@ -128,6 +128,8 @@ public final class BacktestEngine {
             }
         }
 
+        BacktestDtos.Latest latest = latest(pos, entry, exit, close, time, isLong);
+
         if (pos != null) {
             double px = close[n - 1];
             Trade t = close(pos, n - 1, px, ExitReason.END_OF_DATA, time, isLong, comm);
@@ -138,7 +140,22 @@ public final class BacktestEngine {
         }
 
         Metrics metrics = metrics(cfg, s, equity, trades, barsInMarket, commissionPaid);
-        return new BacktestDtos.BacktestResult(symbol, timeframe, metrics, trades, curve(time, equity));
+        return new BacktestDtos.BacktestResult(symbol, timeframe, metrics, trades, curve(time, equity), latest);
+    }
+
+    private static BacktestDtos.Latest latest(Position pos, double[] entry, double[] exit, double[] close,
+                                              long[] time, boolean isLong) {
+        int last = close.length - 1;
+        if (pos != null) {
+            double move = isLong ? close[last] - pos.entryPrice : pos.entryPrice - close[last];
+            BacktestDtos.SignalState state = exit != null && SeriesEvaluator.truthy(exit, last)
+                    ? BacktestDtos.SignalState.EXIT : BacktestDtos.SignalState.IN_POSITION;
+            return new BacktestDtos.Latest(time[last], round(close[last]), state, time[pos.entryIdx],
+                    round(pos.entryPrice), round(move / pos.entryPrice * 100));
+        }
+        BacktestDtos.SignalState state = SeriesEvaluator.truthy(entry, last)
+                ? BacktestDtos.SignalState.ENTRY : BacktestDtos.SignalState.NONE;
+        return new BacktestDtos.Latest(time[last], round(close[last]), state, null, null, null);
     }
 
     private static double fillEntry(double price, boolean isLong, double slip) {

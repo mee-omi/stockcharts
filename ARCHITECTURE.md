@@ -106,6 +106,14 @@ through configuration, or at runtime from the UI.
 - Output: net profit, return vs buy-and-hold, trades, win rate, average win/loss, profit factor,
   max drawdown, annualised Sharpe (NSE session length), exposure, average holding period,
   costs; equity + drawdown curve (thinned to 2,000 points); trade list; "show trades on chart".
+- **Latest-bar signal**: every result also reports the strategy's state at the last bar — `ENTRY`
+  (condition true while flat → act at the next open), `EXIT`, `IN_POSITION` (with open P&L) or `NONE`.
+- **Scanner** (`POST /backtest/scan`): one strategy over a universe (resolved by the shared
+  `UniverseService`, same rules as the screener) in a bounded parallel pool. Candles go through the
+  read-through cache, so stale ranges are re-fetched and each scan includes the latest bar; the
+  response reports the newest bar time. Rows are ranked by return, net profit, win rate, profit
+  factor, Sharpe, drawdown or trade count, and filtered by minimum trades / win rate / profit factor
+  or "actionable signal only". The UI can re-run it every 5/15/60 minutes.
 
 ### 2.8 Trading
 - **Order ticket**: MARKET, LIMIT, SL, SL-M; BUY/SELL; CNC, MIS, NRML. Tabs for Orders (with
@@ -321,6 +329,7 @@ All three compile user expressions through `SeriesEvaluator`:
 - **Alerts**: every 15 s, active alerts grouped by (symbol, timeframe) → one candle load per group
   → evaluate each alert at the last bar → fire (persist event, notify) according to its mode.
 - **Backtest**: load the range → evaluate entry/exit over the whole series → `BacktestEngine`.
+  A scan does this per symbol in parallel, then filters and ranks the results.
 
 ### 4.4 Trading, journal and reports
 `TradingController` → `TradingClient` → data service → active `TradingProvider`. A `COMPLETE`
@@ -342,7 +351,7 @@ filters by close date and broker.
 | Screener | `GET /screener/universes`, `POST /screener/run`, `GET/POST /screener`, `DELETE /screener/{name}`, `POST /screener/{name}/run` |
 | Watchlists | `GET/POST /watchlists`, `GET/DELETE /watchlists/{name}` |
 | Alerts | `GET/POST /alerts`, `PUT/DELETE /alerts/{id}`, `POST /alerts/{id}/status`, `GET /alerts/events`, `POST /alerts/evaluate` |
-| Backtest | `POST /backtest` |
+| Backtest | `POST /backtest`, `POST /backtest/scan` |
 | Journal | `GET/POST /journal`, `PUT/DELETE /journal/{id}`, `POST /journal/sync` |
 | Portfolio | `GET /portfolio/report`, `GET /portfolio/report.csv` (`from`, `to`, `broker`) |
 | UI state | `GET/PUT/DELETE /ui-state/{key}` |

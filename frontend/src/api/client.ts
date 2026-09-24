@@ -7,6 +7,8 @@ import type {
   ApplyResponse,
   BacktestRequest,
   BacktestResult,
+  BacktestScanRequest,
+  BacktestScanResult,
   Candle,
   CatalogEntry,
   CustomIndicator,
@@ -135,6 +137,12 @@ export async function listAlertEvents(limit = 50): Promise<AlertEvent[]> {
 // ---- backtest ----
 export async function runBacktest(req: BacktestRequest): Promise<BacktestResult> {
   const { data } = await api.post<BacktestResult>('/backtest', req)
+  return data
+}
+
+/** One strategy over a whole universe; can take a while on cold caches. */
+export async function runBacktestScan(req: BacktestScanRequest): Promise<BacktestScanResult> {
+  const { data } = await api.post<BacktestScanResult>('/backtest/scan', req, { timeout: 300_000 })
   return data
 }
 

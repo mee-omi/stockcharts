@@ -100,7 +100,23 @@ export async function mockApi(page: Page, init: Partial<MockState> = {}): Promis
         trades: [{ side: 'LONG', entryTime: eq[5].time, entryPrice: 100, exitTime: eq[9].time, exitPrice: 110, quantity: 10,
           pnl: 100, pnlPct: 10, barsHeld: 4, exitReason: 'SIGNAL' }],
         equity: eq,
+        latest: { time: eq[eq.length - 1].time, close: 112, signal: 'IN_POSITION', positionSince: eq[40].time,
+          positionEntryPrice: 105, openPnlPct: 6.67 },
       })
+    }
+    if (path === '/backtest/scan') {
+      const m = (ret: number, trades: number) => ({ initialCapital: 100000, finalEquity: 100000 * (1 + ret / 100),
+        netProfit: ret * 1000, totalReturnPct: ret, buyHoldReturnPct: 4, trades, wins: Math.ceil(trades / 2),
+        losses: Math.floor(trades / 2), winRatePct: 55, avgTradePct: 1, avgWinPct: 3, avgLossPct: -1,
+        profitFactor: 1.8, maxDrawdownPct: 7, sharpe: 1.1, exposurePct: 30, avgBarsHeld: 6, commissionPaid: 50, bars: 750 })
+      const latest = (signal: string) => ({ time: Math.floor(Date.now() / 1000), close: 1000, signal,
+        positionSince: null, positionEntryPrice: null, openPnlPct: signal === 'IN_POSITION' ? 2.5 : null })
+      return json({ timeframe: body.strategy.timeframe, scanned: 3, evaluated: 3, matched: 2, skipped: 0,
+        truncated: false, dataAsOf: Math.floor(Date.now() / 1000), durationMs: 1234, errors: [],
+        rows: [
+          { symbol: 'TCS', name: 'Tata Consultancy Services Ltd', latest: latest('ENTRY'), metrics: m(25, 8) },
+          { symbol: 'RELIANCE', name: 'Reliance Industries Ltd', latest: latest('IN_POSITION'), metrics: m(12, 6) },
+        ] })
     }
     if (path === '/portfolio/report') {
       return json({

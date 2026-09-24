@@ -132,6 +132,7 @@ Base path `/api/v1` (full schema at `/swagger-ui.html`):
 | GET | `/quotes?symbols=A,B` | Last price and day change (watchlist) |
 | GET/POST/PUT/DELETE | `/alerts`, `/alerts/{id}/status`, `/alerts/events` | Alerts and trigger history; WS topic `/topic/alerts` |
 | POST | `/backtest` | Run a rule-based backtest (entry/exit expressions, stop/target, costs) |
+| POST | `/backtest/scan` | Backtest a strategy across a universe; rank, filter, latest-bar signals |
 | GET/POST/PUT/DELETE | `/journal`, `/journal/sync` | Trade journal (filled orders are recorded automatically) |
 | GET | `/portfolio/report`, `/portfolio/report.csv` | Realised P&L (FIFO), charges, STCG/LTCG/intraday, tax estimate |
 | GET/PUT/DELETE | `/ui-state/{key}` | Saved chart layout and per-symbol drawings |
@@ -212,6 +213,12 @@ For native app-store builds, wrap the PWA with Capacitor (not included).
   stop-loss / take-profit are checked against each bar's high/low (stop first if both are touched).
   Costs are a per-leg commission and slippage. Results: equity curve, drawdown, win rate, profit
   factor, Sharpe, exposure and the trade list, which can be plotted on the chart.
+- **Backtest scanner** (Backtest → *Scan universe*, `POST /backtest/scan`): runs the same strategy on
+  every symbol of an index, watchlist, list or all stocks in parallel, after refreshing stale candles
+  so the latest bar is included. Results are ranked (return, profit factor, win rate, Sharpe,
+  drawdown…), filtered (min trades / win rate / profit factor) and show each symbol's signal on the
+  latest bar — *buy/short at next open*, *sell/cover at next open*, or *holding* with open P&L.
+  Optionally re-runs every 5/15/60 minutes while the page is open.
 - **Portfolio** matches journalled fills FIFO per symbol and classifies each closed lot as intraday
   (same IST day or MIS), STCG or LTCG (held > 12 months). Charges and the per-financial-year tax
   estimate use the rates listed in the report's "How this is calculated" section — they are

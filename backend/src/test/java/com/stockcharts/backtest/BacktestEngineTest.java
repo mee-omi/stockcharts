@@ -155,4 +155,29 @@ class BacktestEngineTest {
                 cfg(Direction.LONG, null, null, 0));
         assertNull(r.metrics().profitFactor());
     }
+
+    @Test
+    void latestBarReportsEntrySignalWhenFlat() {
+        PriceSeries s = ramp(10, 11, 12, 13);
+        BacktestResult r = BacktestEngine.run("X", "1d", s, signalAt(4, 3), null, cfg(Direction.LONG, null, null, 0));
+        assertEquals(BacktestDtos.SignalState.ENTRY, r.latest().signal());
+        assertEquals(s.time()[3], r.latest().time());
+        assertNull(r.latest().positionSince());
+    }
+
+    @Test
+    void latestBarReportsOpenPositionAndExitSignal() {
+        PriceSeries s = ramp(10, 10, 12, 13);
+        BacktestResult holding = BacktestEngine.run("X", "1d", s, signalAt(4, 0), null, cfg(Direction.LONG, null, null, 0));
+        assertEquals(BacktestDtos.SignalState.IN_POSITION, holding.latest().signal());
+        assertEquals(s.time()[1], holding.latest().positionSince());
+        assertEquals(10, holding.latest().positionEntryPrice());
+        assertEquals(35, holding.latest().openPnlPct(), 1e-9); // (13.5 - 10) / 10
+        // Metrics still close the position at the end of data.
+        assertEquals(BacktestDtos.ExitReason.END_OF_DATA, holding.trades().get(0).exitReason());
+
+        BacktestResult exiting = BacktestEngine.run("X", "1d", s, signalAt(4, 0), signalAt(4, 3),
+                cfg(Direction.LONG, null, null, 0));
+        assertEquals(BacktestDtos.SignalState.EXIT, exiting.latest().signal());
+    }
 }

@@ -19,6 +19,7 @@ class RateLimitFilterTest {
         assertEquals(RateLimitFilter.Tier.HEAVY, RateLimitFilter.tier("POST", "/api/v1/screener/run"));
         assertEquals(RateLimitFilter.Tier.HEAVY, RateLimitFilter.tier("POST", "/api/v1/screener/mine/run"));
         assertEquals(RateLimitFilter.Tier.HEAVY, RateLimitFilter.tier("POST", "/api/v1/backtest"));
+        assertEquals(RateLimitFilter.Tier.HEAVY, RateLimitFilter.tier("POST", "/api/v1/backtest/scan"));
         assertEquals(RateLimitFilter.Tier.DEFAULT, RateLimitFilter.tier("POST", "/api/v1/screener"));
     }
 

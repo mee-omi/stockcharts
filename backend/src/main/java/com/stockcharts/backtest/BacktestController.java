@@ -23,4 +23,11 @@ public class BacktestController {
     public BacktestDtos.BacktestResult run(@RequestBody BacktestDtos.BacktestRequest request) {
         return service.run(request);
     }
+
+    @PostMapping("/scan")
+    @Operation(summary = "Backtest one strategy across a universe on the latest data; rank, filter, and "
+            + "report each symbol's signal at the latest bar")
+    public BacktestDtos.ScanResult scan(@RequestBody BacktestDtos.ScanRequest request) {
+        return service.scan(request);
+    }
 }

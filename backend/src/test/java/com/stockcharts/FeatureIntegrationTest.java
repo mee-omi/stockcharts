@@ -197,6 +197,38 @@ class FeatureIntegrationTest {
                 .andExpect(status().isBadRequest());
     }
 
+    @Test
+    void backtestScanRanksUniverseAndReportsLatestSignals() throws Exception {
+        String strategy = """
+                "strategy":{"timeframe":"1m","entry":"crossover(ema(close,5), ema(close,20))",
+                            "exit":"crossunder(ema(close,5), ema(close,20))","commissionPct":0}
+                """;
+        mvc.perform(post("/api/v1/backtest/scan").contentType(MediaType.APPLICATION_JSON).content(
+                        "{\"universe\":{\"type\":\"list\",\"value\":\"RELIANCE,TCS,NOSUCH\"}," + strategy
+                                + ",\"sortBy\":\"TOTAL_RETURN\"}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.timeframe").value("1m"))
+                .andExpect(jsonPath("$.scanned").value(2)) // unknown symbols are dropped
+                .andExpect(jsonPath("$.evaluated").value(2))
+                .andExpect(jsonPath("$.rows", hasSize(2)))
+                .andExpect(jsonPath("$.rows[0].metrics.bars").value(N))
+                .andExpect(jsonPath("$.rows[0].latest.signal").isString())
+                .andExpect(jsonPath("$.dataAsOf").isNumber());
+
+        // Filters apply after the backtests: an impossible bar leaves nothing.
+        mvc.perform(post("/api/v1/backtest/scan").contentType(MediaType.APPLICATION_JSON).content(
+                        "{\"universe\":{\"type\":\"list\",\"value\":\"RELIANCE,TCS\"}," + strategy
+                                + ",\"minTrades\":100000}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.evaluated").value(2))
+                .andExpect(jsonPath("$.matched").value(0));
+
+        mvc.perform(post("/api/v1/backtest/scan").contentType(MediaType.APPLICATION_JSON).content(
+                        "{\"universe\":{\"type\":\"list\",\"value\":\"RELIANCE\"},"
+                                + "\"strategy\":{\"timeframe\":\"1m\",\"entry\":\"bogus(close)\"}}"))
+                .andExpect(status().isBadRequest());
+    }
+
     // ---- quotes, universes, live ----
 
     @Test

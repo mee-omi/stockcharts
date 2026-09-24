@@ -377,12 +377,58 @@ export interface BacktestMetrics {
   bars: number
 }
 
+/** Strategy state at the latest bar: ENTRY/EXIT = act at the next open; IN_POSITION = holding. */
+export type SignalState = 'ENTRY' | 'EXIT' | 'IN_POSITION' | 'NONE'
+
+export interface BacktestLatest {
+  time: number // epoch seconds of the latest bar
+  close: number
+  signal: SignalState
+  positionSince: number | null
+  positionEntryPrice: number | null
+  openPnlPct: number | null
+}
+
 export interface BacktestResult {
   symbol: string
   timeframe: string
   metrics: BacktestMetrics
   trades: BacktestTrade[]
   equity: { time: number; equity: number; drawdownPct: number }[]
+  latest: BacktestLatest
+}
+
+export type ScanSort = 'TOTAL_RETURN' | 'NET_PROFIT' | 'WIN_RATE' | 'PROFIT_FACTOR' | 'SHARPE' | 'MAX_DRAWDOWN' | 'TRADES'
+
+export interface BacktestScanRequest {
+  universe: Universe
+  strategy: Omit<BacktestRequest, 'symbol'>
+  sortBy?: ScanSort
+  minTrades?: number
+  minWinRatePct?: number
+  minProfitFactor?: number
+  onlySignals?: boolean
+  limit?: number
+}
+
+export interface BacktestScanRow {
+  symbol: string
+  name: string
+  latest: BacktestLatest
+  metrics: BacktestMetrics
+}
+
+export interface BacktestScanResult {
+  timeframe: string
+  scanned: number
+  evaluated: number
+  matched: number
+  skipped: number
+  truncated: boolean
+  dataAsOf: number | null
+  durationMs: number
+  rows: BacktestScanRow[]
+  errors: string[]
 }
 
 // ---------------------------------------------------------------------------

@@ -74,6 +74,35 @@ test('backtest shows metrics and can plot trades on the chart', async ({ page })
   await expect(page.locator('.symbol-label')).toContainText('1d')
 })
 
+test('backtest scan ranks a universe and opens a symbol from the results', async ({ page }) => {
+  const api = await mockApi(page)
+  await page.goto('/')
+  await page.getByRole('button', { name: 'Backtest', exact: true }).click()
+  await page.getByRole('tab', { name: 'Scan universe' }).click()
+  await page.getByLabel('Rank by').selectOption('PROFIT_FACTOR')
+  await page.getByText('Only symbols with an entry/exit signal').click()
+  await page.getByRole('button', { name: 'Run scan' }).click()
+
+  const req = api.requests.find((r) => r.path === '/backtest/scan')!
+  expect(req.body).toMatchObject({
+    universe: { type: 'index', value: 'NIFTY50' }, sortBy: 'PROFIT_FACTOR', onlySignals: true, minTrades: 3,
+    strategy: { timeframe: '1d', direction: 'LONG', stopLossPct: 5 },
+  })
+  expect(req.body.strategy.symbol).toBeUndefined()
+
+  const rows = page.locator('.scan-table tbody tr')
+  await expect(rows).toHaveCount(2)
+  await expect(rows.first()).toContainText('Buy at next open')
+  await expect(rows.nth(1)).toContainText('Holding +2.50%')
+  await expect(page.getByText('2 of 3 symbols')).toBeVisible()
+
+  await rows.first().click()
+  await expect(page.getByRole('tab', { name: 'Single symbol' })).toHaveAttribute('aria-selected', 'true')
+  const single = api.requests.filter((r) => r.path === '/backtest').pop()!
+  expect(single.body.symbol).toBe('TCS')
+  await expect(page.locator('.card-head h3')).toContainText('Holding +6.67%')
+})
+
 test('portfolio report shows P&L, tax table and a CSV link', async ({ page }) => {
   await mockApi(page)
   await page.goto('/')
