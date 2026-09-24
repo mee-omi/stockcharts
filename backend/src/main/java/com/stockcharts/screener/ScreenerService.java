@@ -13,6 +13,8 @@ import com.stockcharts.instrument.InstrumentRepository;
 import com.stockcharts.screener.dto.ScreenerRequest;
 import com.stockcharts.screener.dto.ScreenerResult;
 import com.stockcharts.ta.PriceSeries;
+import io.micrometer.core.instrument.MeterRegistry;
+import io.micrometer.core.instrument.Timer;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
@@ -38,38 +40,35 @@ public class ScreenerService {
 
     private static final Logger log = LoggerFactory.getLogger(ScreenerService.class);
 
-    /** NIFTY-50 constituents (also the mock universe). */
-    private static final Set<String> NIFTY50 = Set.of(
-            "RELIANCE", "TCS", "HDFCBANK", "INFY", "ICICIBANK", "HINDUNILVR", "ITC", "SBIN",
-            "BHARTIARTL", "KOTAKBANK", "LT", "AXISBANK", "ASIANPAINT", "MARUTI", "BAJFINANCE",
-            "HCLTECH", "SUNPHARMA", "TITAN", "WIPRO", "ULTRACEMCO", "NESTLEIND", "ONGC", "NTPC",
-            "POWERGRID", "TATAMOTORS", "TATASTEEL", "JSWSTEEL", "ADANIENT", "ADANIPORTS", "COALINDIA",
-            "BAJAJFINSV", "HDFCLIFE", "GRASIM", "DRREDDY", "CIPLA", "BRITANNIA", "EICHERMOT",
-            "HEROMOTOCO", "BAJAJ-AUTO", "INDUSINDBK", "DIVISLAB", "TECHM", "APOLLOHOSP", "TATACONSUM",
-            "SBILIFE", "BPCL", "HINDALCO", "UPL", "LTIM", "SHRIRAMFIN");
-
     private final InstrumentRepository instruments;
     private final CandleService candleService;
     private final ExpressionService expr;
     private final CustomIndicatorService customService;
     private final WatchlistRepository watchlists;
     private final AppProperties props;
+    private final Timer timer;
 
     public ScreenerService(InstrumentRepository instruments, CandleService candleService,
                            ExpressionService expr, CustomIndicatorService customService,
-                           WatchlistRepository watchlists, AppProperties props) {
+                           WatchlistRepository watchlists, AppProperties props, MeterRegistry meters) {
         this.instruments = instruments;
         this.candleService = candleService;
         this.expr = expr;
         this.customService = customService;
         this.watchlists = watchlists;
         this.props = props;
+        this.timer = Timer.builder("stockcharts.screener.duration")
+                .description("Screener run time").register(meters);
     }
 
     private record Column(String label, CompiledExpr compiled) {
     }
 
     public ScreenerResult run(ScreenerRequest req) {
+        return timer.record(() -> doRun(req));
+    }
+
+    private ScreenerResult doRun(ScreenerRequest req) {
         if (req.expression() == null || req.expression().isBlank()) {
             throw new IllegalArgumentException("Screener expression is required");
         }
@@ -91,11 +90,14 @@ public class ScreenerService {
             }
         }
 
-        Map<String, String> nameBySymbol = instruments.findAll().stream()
+        List<Instrument> all = instruments.findAll();
+        Map<String, String> nameBySymbol = all.stream()
                 .collect(Collectors.toMap(Instrument::getSymbol, Instrument::getName, (a, b) -> a));
+        Set<String> equities = all.stream().filter(i -> !i.isIndex())
+                .map(Instrument::getSymbol).collect(Collectors.toSet());
 
         boolean[] truncatedUniverse = {false};
-        List<String> symbols = resolveUniverse(req.universe(), nameBySymbol.keySet(), truncatedUniverse);
+        List<String> symbols = resolveUniverse(req.universe(), nameBySymbol.keySet(), equities, truncatedUniverse);
         if (symbols.isEmpty()) {
             return new ScreenerResult(0, 0, truncatedUniverse[0], List.of());
         }
@@ -163,12 +165,15 @@ public class ScreenerService {
         }
     }
 
-    private List<String> resolveUniverse(ScreenerRequest.Universe u, Set<String> known, boolean[] truncated) {
+    private List<String> resolveUniverse(ScreenerRequest.Universe u, Set<String> known, Set<String> equities,
+                                         boolean[] truncated) {
         String type = u == null || u.type() == null ? "index" : u.type().toLowerCase();
         String value = u == null ? null : u.value();
         List<String> symbols = switch (type) {
-            case "all" -> new ArrayList<>(known);
-            case "index" -> NIFTY50.stream().sorted().collect(Collectors.toList());
+            case "all" -> equities.stream().sorted().collect(Collectors.toList());
+            case "index" -> IndexUniverses.find(value)
+                    .map(d -> d.symbols().stream().sorted().collect(Collectors.toList()))
+                    .orElseThrow(() -> new IllegalArgumentException("Unknown index universe: " + value));
             case "list" -> value == null ? List.of()
                     : java.util.Arrays.stream(value.split(","))
                     .map(x -> x.trim().toUpperCase()).filter(x -> !x.isEmpty()).toList();

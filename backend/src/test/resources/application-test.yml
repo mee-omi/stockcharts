@@ -19,3 +19,6 @@ stockcharts:
   # Empty → live stream disabled during tests (no data-service needed).
   live-symbols: []
   data-service-url: http://localhost:9
+  alerts:
+    # Tests drive evaluation explicitly; keep the scheduler out of the way.
+    initial-delay: PT1H

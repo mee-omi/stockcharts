@@ -18,7 +18,10 @@ public record ScreenerRequest(
         List<Column> columns,
         Integer limit
 ) {
-    /** type = index | list | watchlist | all. value = preset/watchlist name or CSV of symbols. */
+    /**
+     * type = index | list | watchlist | all. value = index code (e.g. NIFTY50, BANKNIFTY; default
+     * NIFTY50), watchlist name, or CSV of symbols.
+     */
     public record Universe(String type, String value) {
     }
 

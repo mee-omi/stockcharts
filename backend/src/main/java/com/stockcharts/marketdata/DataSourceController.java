@@ -43,6 +43,7 @@ public class DataSourceController {
         ProviderInfo info = marketData.setProvider(req.provider(), req.enctoken());
         // The instrument universe and live feed differ per source — refresh both.
         instrumentService.syncInstruments();
+        liveDataService.resetRequestedSymbols();
         liveDataService.restart();
         return info;
     }

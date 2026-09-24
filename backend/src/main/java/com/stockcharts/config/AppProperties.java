@@ -11,7 +11,187 @@ public class AppProperties {
     private String dataServiceUrl = "http://localhost:8000";
     private List<String> liveSymbols = List.of("RELIANCE", "TCS");
     private int backfillDays = 5;
+    /** Run live tick ingestion on this instance (disable on all but one replica in cluster mode). */
+    private boolean liveEnabled = true;
+    /** Cap on symbols added to the live stream by client subscriptions. */
+    private int liveMaxSymbols = 100;
     private final Screener screener = new Screener();
+    private final Alerts alerts = new Alerts();
+    private final RateLimit rateLimit = new RateLimit();
+    private final Cluster cluster = new Cluster();
+
+    /** Alert evaluation and notification channels. */
+    public static class Alerts {
+        /** Telegram bot token + chat id; both required to enable Telegram delivery. */
+        private String telegramBotToken;
+        private String telegramChatId;
+        /** Optional URL that receives a JSON POST for every triggered alert. */
+        private String webhookUrl;
+
+        public String getTelegramBotToken() {
+            return telegramBotToken;
+        }
+
+        public void setTelegramBotToken(String telegramBotToken) {
+            this.telegramBotToken = telegramBotToken;
+        }
+
+        public String getTelegramChatId() {
+            return telegramChatId;
+        }
+
+        public void setTelegramChatId(String telegramChatId) {
+            this.telegramChatId = telegramChatId;
+        }
+
+        public String getWebhookUrl() {
+            return webhookUrl;
+        }
+
+        public void setWebhookUrl(String webhookUrl) {
+            this.webhookUrl = webhookUrl;
+        }
+    }
+
+    /** Per-client request limits (requests per minute). */
+    public static class RateLimit {
+        private boolean enabled = true;
+        private int requestsPerMinute = 600;
+        /** Order placement / broker switching. */
+        private int tradingPerMinute = 60;
+        /** CPU-heavy endpoints: screener runs and backtests. */
+        private int heavyPerMinute = 30;
+        /** Use X-Forwarded-For as the client address (only behind a trusted proxy). */
+        private boolean trustForwardedFor = false;
+
+        public boolean isEnabled() {
+            return enabled;
+        }
+
+        public void setEnabled(boolean enabled) {
+            this.enabled = enabled;
+        }
+
+        public int getRequestsPerMinute() {
+            return requestsPerMinute;
+        }
+
+        public void setRequestsPerMinute(int requestsPerMinute) {
+            this.requestsPerMinute = requestsPerMinute;
+        }
+
+        public int getTradingPerMinute() {
+            return tradingPerMinute;
+        }
+
+        public void setTradingPerMinute(int tradingPerMinute) {
+            this.tradingPerMinute = tradingPerMinute;
+        }
+
+        public int getHeavyPerMinute() {
+            return heavyPerMinute;
+        }
+
+        public void setHeavyPerMinute(int heavyPerMinute) {
+            this.heavyPerMinute = heavyPerMinute;
+        }
+
+        public boolean isTrustForwardedFor() {
+            return trustForwardedFor;
+        }
+
+        public void setTrustForwardedFor(boolean trustForwardedFor) {
+            this.trustForwardedFor = trustForwardedFor;
+        }
+    }
+
+    /** Settings for running more than one backend replica. */
+    public static class Cluster {
+        /** Guard scheduled jobs with ShedLock (needs the shedlock table from Flyway V8). */
+        private boolean enabled = false;
+        /** Relay STOMP through an external broker (e.g. RabbitMQ) instead of the in-memory one. */
+        private boolean brokerRelayEnabled = false;
+        private String brokerRelayHost = "localhost";
+        private int brokerRelayPort = 61613;
+        private String brokerRelayLogin = "guest";
+        private String brokerRelayPasscode = "guest";
+
+        public boolean isEnabled() {
+            return enabled;
+        }
+
+        public void setEnabled(boolean enabled) {
+            this.enabled = enabled;
+        }
+
+        public boolean isBrokerRelayEnabled() {
+            return brokerRelayEnabled;
+        }
+
+        public void setBrokerRelayEnabled(boolean brokerRelayEnabled) {
+            this.brokerRelayEnabled = brokerRelayEnabled;
+        }
+
+        public String getBrokerRelayHost() {
+            return brokerRelayHost;
+        }
+
+        public void setBrokerRelayHost(String brokerRelayHost) {
+            this.brokerRelayHost = brokerRelayHost;
+        }
+
+        public int getBrokerRelayPort() {
+            return brokerRelayPort;
+        }
+
+        public void setBrokerRelayPort(int brokerRelayPort) {
+            this.brokerRelayPort = brokerRelayPort;
+        }
+
+        public String getBrokerRelayLogin() {
+            return brokerRelayLogin;
+        }
+
+        public void setBrokerRelayLogin(String brokerRelayLogin) {
+            this.brokerRelayLogin = brokerRelayLogin;
+        }
+
+        public String getBrokerRelayPasscode() {
+            return brokerRelayPasscode;
+        }
+
+        public void setBrokerRelayPasscode(String brokerRelayPasscode) {
+            this.brokerRelayPasscode = brokerRelayPasscode;
+        }
+    }
+
+    public Alerts getAlerts() {
+        return alerts;
+    }
+
+    public RateLimit getRateLimit() {
+        return rateLimit;
+    }
+
+    public Cluster getCluster() {
+        return cluster;
+    }
+
+    public boolean isLiveEnabled() {
+        return liveEnabled;
+    }
+
+    public void setLiveEnabled(boolean liveEnabled) {
+        this.liveEnabled = liveEnabled;
+    }
+
+    public int getLiveMaxSymbols() {
+        return liveMaxSymbols;
+    }
+
+    public void setLiveMaxSymbols(int liveMaxSymbols) {
+        this.liveMaxSymbols = liveMaxSymbols;
+    }
 
     /** Screener tuning (bounds the heavy "all NSE" scans). */
     public static class Screener {

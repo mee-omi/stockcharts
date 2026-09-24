@@ -7,6 +7,7 @@ public record InstrumentDto(
         String symbol,
         String name,
         @JsonProperty("instrument_token") long instrumentToken,
-        String exchange
+        String exchange,
+        @JsonProperty("instrument_type") String instrumentType
 ) {
 }

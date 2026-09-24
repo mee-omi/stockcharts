@@ -35,6 +35,16 @@ public class ScreenerController {
                 new ScreenerRequest.Universe(s.getUniverseType(), s.getUniverseValue()), s.getTimeframe());
     }
 
+    public record UniverseInfo(String code, String label, int size) {
+    }
+
+    @GetMapping("/universes")
+    @Operation(summary = "List the named index universes available to the screener")
+    public List<UniverseInfo> universes() {
+        return IndexUniverses.all().stream()
+                .map(d -> new UniverseInfo(d.code(), d.label(), d.symbols().size())).toList();
+    }
+
     @PostMapping("/run")
     @Operation(summary = "Run an ad-hoc screener over a universe")
     public ScreenerResult run(@RequestBody ScreenerRequest request) {
