@@ -45,6 +45,12 @@ services:
       DATA_SERVICE_URL: http://data-service:8000
       # Behind the frontend's nginx, the client IP for rate limiting is in X-Forwarded-For.
       RATE_LIMIT_TRUST_XFF: "true"
+      # Login: the first visit creates the account. Set AUTH_SECRET (32+ chars) to keep sessions
+      # valid across database resets; set AUTH_COOKIE_SECURE=true when served over HTTPS.
+      AUTH_ENABLED: ${AUTH_ENABLED:-true}
+      AUTH_SECRET: ${AUTH_SECRET:-}
+      AUTH_COOKIE_SECURE: ${AUTH_COOKIE_SECURE:-false}
+      ALLOWED_ORIGINS: ${ALLOWED_ORIGINS:-}
       # Optional alert delivery channels.
       TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN:-}
       TELEGRAM_CHAT_ID: ${TELEGRAM_CHAT_ID:-}

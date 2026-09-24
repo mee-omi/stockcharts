@@ -2,6 +2,7 @@ package com.stockcharts.trading;
 
 import com.stockcharts.journal.JournalEntry;
 import com.stockcharts.journal.JournalService;
+import com.stockcharts.risk.RiskService;
 import com.stockcharts.trading.dto.FundsDto;
 import com.stockcharts.trading.dto.HoldingDto;
 import com.stockcharts.trading.dto.ModifyOrderRequest;
@@ -19,6 +20,7 @@ import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
@@ -39,10 +41,18 @@ public class TradingController {
 
     private final TradingClient trading;
     private final JournalService journal;
+    private final RiskService risk;
 
-    public TradingController(TradingClient trading, JournalService journal) {
+    public TradingController(TradingClient trading, JournalService journal, RiskService risk) {
         this.trading = trading;
         this.journal = journal;
+        this.risk = risk;
+    }
+
+    @PostMapping("/trading/orders/preview")
+    @Operation(summary = "Check an order against the risk limits; returns a 60s confirmation token when allowed")
+    public RiskService.Preview previewOrder(@RequestBody PlaceOrderRequest req) {
+        return risk.preview(req, journal.activeBroker());
     }
 
     // ---- broker management ----
@@ -78,10 +88,13 @@ public class TradingController {
 
     @PostMapping("/trading/orders")
     @Operation(summary = "Place a new order")
-    public OrderDto placeOrder(@RequestBody PlaceOrderRequest req) {
+    public OrderDto placeOrder(@RequestBody PlaceOrderRequest req,
+                               @RequestHeader(value = "X-Order-Confirmation", required = false) String confirmation) {
+        String broker = journal.activeBroker();
+        risk.enforce(req, broker, confirmation);
         OrderDto order = trading.placeOrder(req);
         try {
-            journal.recordIfFilled(order, journal.activeBroker(), req.tag(), JournalEntry.Source.APP);
+            journal.recordIfFilled(order, broker, req.tag(), JournalEntry.Source.APP);
         } catch (Exception e) {
             // Journalling must never fail an order that the broker has already accepted.
             log.warn("Could not journal order {}: {}", order == null ? null : order.orderId(), e.getMessage());
@@ -106,6 +119,7 @@ public class TradingController {
     public OrderDto modifyOrder(
             @PathVariable String orderId,
             @RequestBody ModifyOrderRequest req) {
+        risk.enforceModify(orderId, req.quantity(), req.price(), journal.activeBroker());
         return trading.modifyOrder(orderId, req);
     }
 

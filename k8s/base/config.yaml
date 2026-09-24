@@ -23,6 +23,10 @@ data:
   POSTGRES_USER: "stockcharts"
   # The backend sits behind the ingress, so the client IP for rate limiting is in X-Forwarded-For.
   RATE_LIMIT_TRUST_XFF: "true"
+  # Login is on; the ingress terminates TLS, so the session cookie is marked Secure.
+  AUTH_ENABLED: "true"
+  AUTH_COOKIE_SECURE: "true"
+  ALLOWED_ORIGINS: ""
   # Running more than one backend replica? Set CLUSTER_ENABLED=true (ShedLock for scheduled jobs),
   # enable STOMP_RELAY_ENABLED with a RabbitMQ/ActiveMQ STOMP broker, and LIVE_ENABLED=true on
   # exactly one replica. The data service holds provider state in memory: keep it at 1 replica.

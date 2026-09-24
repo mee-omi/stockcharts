@@ -18,6 +18,14 @@ public class ApiExceptionHandler {
         return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(Map.of("error", e.getMessage()));
     }
 
+    @ExceptionHandler(com.stockcharts.risk.OrderRejectedException.class)
+    public ResponseEntity<Map<String, Object>> orderRejected(com.stockcharts.risk.OrderRejectedException e) {
+        HttpStatus status = e.isConfirmationRequired() ? HttpStatus.PRECONDITION_REQUIRED : HttpStatus.UNPROCESSABLE_ENTITY;
+        return ResponseEntity.status(status).body(Map.of(
+                "error", e.getMessage(), "violations", e.getViolations(),
+                "confirmationRequired", e.isConfirmationRequired()));
+    }
+
     @ExceptionHandler(NoSuchElementException.class)
     public ResponseEntity<Map<String, String>> notFound(NoSuchElementException e) {
         return ResponseEntity.status(HttpStatus.NOT_FOUND).body(Map.of("error", e.getMessage()));

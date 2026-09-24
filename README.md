@@ -100,6 +100,10 @@ Copy `.env.example` to `.env`. Key settings:
 | `ALERTS_WEBHOOK_URL` | _(empty)_ | POST every fired alert as JSON to this URL |
 | `RATE_LIMIT_RPM` / `_TRADING_RPM` / `_HEAVY_RPM` | 600 / 60 / 30 | Per-client limits per minute (general / orders / screener+backtest) |
 | `BACKEND_PROFILES=json`, `LOG_FORMAT=json` | _(empty)_ | Structured JSON logs (backend / data service) |
+| `AUTH_ENABLED` | `true` | Require sign-in. The first visit creates the account |
+| `AUTH_SECRET` | _(generated)_ | Session signing key (32+ chars); generated and stored in the DB when empty |
+| `AUTH_COOKIE_SECURE` | `false` | Mark the session cookie `Secure` (auto when the request arrives over HTTPS) |
+| `ALLOWED_ORIGINS` | _(same-origin)_ | Extra browser origins for CORS and the WebSocket |
 
 ### Using real broker data (Zerodha or Angel One)
 
@@ -153,6 +157,9 @@ Base path `/api/v1` (full schema at `/swagger-ui.html`):
 | GET | `/portfolio/report`, `/portfolio/report.csv` | Realised P&L (FIFO), charges, STCG/LTCG/intraday, tax estimate |
 | GET/PUT/DELETE | `/ui-state/{key}` | Saved chart layout and per-symbol drawings |
 | GET/POST | `/broker`, `/trading/*` | Broker switch, orders, positions, holdings, funds |
+| POST | `/trading/orders/preview` | Check an order against the risk limits; returns a 60 s confirmation token |
+| GET/PUT, POST | `/risk`, `/risk/kill-switch` | Order limits, today's usage, kill switch |
+| GET/POST | `/auth/status`, `/auth/setup`, `/auth/login`, `/auth/logout`, `/auth/password` | Sign-in (session cookie) |
 
 Timeframes: `1m, 5m, 15m, 30m, 1h, 1d`.
 Built-in indicators: `SMA, EMA, WMA, RSI, MACD, BBANDS, STOCH, ATR, ADX, OBV, VWAP, CCI`.
@@ -239,6 +246,25 @@ For native app-store builds, wrap the PWA with Capacitor (not included).
   (same IST day or MIS), STCG or LTCG (held > 12 months). Charges and the per-financial-year tax
   estimate use the rates listed in the report's "How this is calculated" section — they are
   estimates for record keeping, not tax advice.
+
+## Security and order safeguards
+
+- **Sign-in.** A single account protects everything under `/api`, `/ws` and Swagger. The first visit
+  creates it (the setup endpoint closes once an account exists). Passwords are BCrypt-hashed. The
+  session is an HMAC-signed, `HttpOnly`, `SameSite=Strict` cookie. Changing the password signs out
+  every other session. Login attempts are rate limited (`RATE_LIMIT_AUTH_RPM`, 10/min). `/actuator/health`
+  stays open for probes. Forgot the password? Delete the row: `DELETE FROM app_user;`, then reload.
+- **Risk limits** (Trade → Risk; enforced by the backend, not only the UI):
+  - Limits: quantity per order, order value, orders per day, and a daily loss limit (today's realised
+    journal P&L + open position P&L).
+  - Orders that reduce an open position are always allowed, so you can exit.
+  - Modifications are checked too.
+  - Rejected orders return HTTP 422 with the reasons.
+- **Kill switch** blocks all new exposure and (optionally) cancels every open order. Exits still work.
+- **Live-order confirmation.** On a real broker every order must first be previewed. The backend
+  returns a signed token bound to that exact order (symbol, side, qty, price, type, product,
+  broker), valid for 60 seconds and usable once. The UI shows a confirmation card before sending.
+  Orders without a valid token get HTTP 428.
 
 ## Operations
 

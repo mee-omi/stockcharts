@@ -127,6 +127,13 @@ through configuration, or at runtime from the UI.
 | `angelone` | Real orders via SmartAPI | `api_key`, `client_id`, TOTP secret |
 | `groww` | Stub (no public Groww API) | — |
 
+- **Safeguards** (`risk` package, enforced server-side): per-order quantity/value limits, orders
+  per day, a daily loss limit on realised + open P&L, and a kill switch that cancels open orders.
+  Position-reducing orders are always allowed. Live-broker orders need a preview, then a signed,
+  single-use 60 s confirmation token bound to the exact order (`X-Order-Confirmation`; 428
+  without it). Limit breaches return 422 with the reasons and count in
+  `stockcharts_orders_rejected_total`.
+
 ### 2.9 Trade journal & portfolio report
 - **Journal**: every order placed through the app that comes back `COMPLETE` is recorded
   (`source=APP`); "Import from broker" pulls completed orders from the broker's order book
@@ -263,6 +270,9 @@ the client-facing WebSocket. The browser talks only to the backend.
 | `quote` | `QuoteService` | Last price / day change for watchlists |
 | `uistate` | `UiStateController` | JSON key/value store for layout and drawings |
 | `trading` | `TradingController`, `TradingClient` | Proxy to the data-service trading API; journals fills |
+| `auth` | `AuthService`, `AuthFilter`, `AuthController`, `SignedTokens` | Single-account sign-in, BCrypt, HMAC session cookie |
+| `risk` | `RiskService`, `RiskController`, `RiskSettings` | Order limits, kill switch, order confirmation tokens |
+| `settings` | `SecretService`, `AppSetting` | Key/value settings (risk limits, generated signing key) |
 | `config` | `RateLimitFilter`, `CacheConfig`, `ClusterConfig`, `WebSocketConfig`, `ApiExceptionHandler`, `AppProperties` | Cross-cutting concerns |
 
 ### 3.4 Data service layout (`data-service/app/`)
@@ -277,7 +287,7 @@ trading/           base.py (ABC) + models.py + mock, zerodha, angelone, groww
 ../tests/          pytest: mock data, paper broker, HTTP API, metrics
 ```
 
-### 3.5 Database schema (Flyway `V1`–`V8`)
+### 3.5 Database schema (Flyway `V1`–`V9`)
 
 | Table | Key | Notes |
 |---|---|---|
@@ -290,6 +300,8 @@ trading/           base.py (ABC) + models.py + mock, zerodha, angelone, groww
 | `ui_state` (V6) | `state_key` | JSON documents ≤ 64 KiB (`layout`, `drawings:{symbol}`) |
 | `trade_journal` (V7) | `id`; unique `(broker, order_id)` | fills with side, product, qty, price, time, tag, strategy, notes, source |
 | `shedlock` (V8) | `name` | scheduler locks for cluster mode |
+| `app_user` (V9) | `id`; unique `username` | BCrypt password hash, last login |
+| `app_setting` (V9) | `setting_key` | JSON/text settings: `risk.settings`, generated `auth.secret` |
 
 The `dev` profile uses in-memory H2 (schema from entities). `PostgresMigrationTest` applies the
 real migrations to Postgres and runs Hibernate schema validation; CI runs it on TimescaleDB.
@@ -374,6 +386,8 @@ filters by close date and broker.
 | Portfolio | `GET /portfolio/report`, `GET /portfolio/report.csv` (`from`, `to`, `broker`) |
 | UI state | `GET/PUT/DELETE /ui-state/{key}` |
 | Data source | `GET/POST /datasource` |
+| Auth | `GET /auth/status`, `POST /auth/setup`, `/auth/login`, `/auth/logout`, `/auth/password` |
+| Risk | `GET/PUT /risk`, `POST /risk/kill-switch`, `POST /trading/orders/preview` |
 | Trading | `GET/POST /broker`, `GET/POST /trading/orders`, `PUT/DELETE /trading/orders/{id}`, `GET /trading/positions`, `/holdings`, `/funds` |
 | WebSocket | `/ws` (STOMP, SockJS or raw) → `/topic/ticks/{SYMBOL}`, `/topic/alerts` |
 | History sync | `GET /history-sync`, `POST /history-sync/run` |
@@ -400,6 +414,7 @@ Data-service internal API: `/health`, `/metrics`, `/api/provider`, `/api/instrum
 | `LIVE_SYMBOLS`, `LIVE_MAX_SYMBOLS`, `LIVE_ENABLED` | backend | 5 large caps, `100`, `true` |
 | `BACKFILL_DAYS` | backend | `5` |
 | `ALERTS_INTERVAL`, `TELEGRAM_BOT_TOKEN`, `TELEGRAM_CHAT_ID`, `ALERTS_WEBHOOK_URL` | backend | `PT15S`, off |
+| `AUTH_ENABLED`, `AUTH_SECRET`, `AUTH_SESSION_TTL`, `AUTH_COOKIE_SECURE`, `ALLOWED_ORIGINS` | backend | on, generated, `P7D`, `false` (`true` in k8s), same-origin |
 | `RATE_LIMIT_ENABLED`, `RATE_LIMIT_RPM`, `RATE_LIMIT_TRADING_RPM`, `RATE_LIMIT_HEAVY_RPM`, `RATE_LIMIT_TRUST_XFF` | backend | on, 600, 60, 30, `false` (`true` in compose/k8s) |
 | `CLUSTER_ENABLED`, `STOMP_RELAY_ENABLED`, `STOMP_RELAY_HOST/PORT/LOGIN/PASSCODE` | backend | off |
 | `SPRING_PROFILES_ACTIVE=json` (compose: `BACKEND_PROFILES`) | backend | text logs |
@@ -431,10 +446,10 @@ Data-service internal API: `/health`, `/metrics`, `/api/provider`, `/api/instrum
 
 ## 8. Known gaps
 
-1. **No authentication or authorization.** CORS and WebSocket origins are `*`; trading, broker
-   credentials, journal and alerts are open to anyone who can reach the backend. Rate limiting
-   reduces abuse but is not access control. Put the app behind auth or a private network before
-   connecting a real broker.
+1. **Single user.** One account, no roles or 2FA. Sessions are stateless signed cookies:
+   sign-out clears the cookie, and a password change revokes every other session. The backend
+   still trusts the data service, which must stay on a private network (it holds broker
+   credentials and has no auth of its own).
 2. **Broker credentials** travel in plain JSON on `POST /broker` and live only in the data
    service's memory.
 3. **Market hours / IST**: charts render in UTC, the mock trades 24/7, and daily candles are not
@@ -445,8 +460,9 @@ Data-service internal API: `/health`, `/metrics`, `/api/provider`, `/api/instrum
    against live accounts here; Zerodha access tokens / enctokens still need a manual daily
    refresh (Kite's login flow requires a person); indicator
    lines do not update live (only the price bars do).
-6. **Order safety**: no confirmation, quantity/value limits or kill switch for live brokers; no
-   bracket/cover/GTT orders.
+6. **Order safety**: limits and the kill switch act only on orders placed through this app (not
+   orders placed in the broker's own app). The daily loss uses the journal and broker positions
+   (charges are estimated). No bracket/cover/GTT orders.
 7. **Not yet built**: F&O and option chains, multi-chart layouts, Renko/range bars, walk-forward or
    portfolio-level backtests, tax carry-forward of losses.
 8. **Groww** is a placeholder for both data and trading.

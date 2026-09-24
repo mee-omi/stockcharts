@@ -4,6 +4,7 @@ import type {
   AlertEvent,
   AlertRequest,
   AlertStatus,
+  AuthStatus,
   ApplyResponse,
   BacktestRequest,
   BacktestResult,
@@ -24,7 +25,10 @@ import type {
   Quote,
   ModifyOrderRequest,
   Order,
+  OrderPreview,
   PlaceOrderRequest,
+  RiskSettings,
+  RiskState,
   Positions,
   ScreenerDef,
   ScreenerRequest,
@@ -37,7 +41,72 @@ import type {
 } from './types'
 
 // Same-origin in prod (nginx proxies /api); Vite proxy handles dev.
-const api = axios.create({ baseURL: '/api/v1' })
+const api = axios.create({ baseURL: '/api/v1', withCredentials: true })
+
+/** Fired when any API call answers 401, i.e. the session expired or was revoked. */
+export const AUTH_REQUIRED_EVENT = 'stockcharts:auth-required'
+
+api.interceptors.response.use(undefined, (err) => {
+  const url: string = err?.config?.url ?? ''
+  if (err?.response?.status === 401 && !url.startsWith('/auth/')) {
+    window.dispatchEvent(new Event(AUTH_REQUIRED_EVENT))
+  }
+  return Promise.reject(err)
+})
+
+/** Human-readable message from an API error ({error, violations} or FastAPI {detail}). */
+export function apiErrorMessage(e: any, fallback = 'Request failed'): string {
+  const d = e?.response?.data
+  if (d && Array.isArray(d.violations) && d.violations.length) return d.violations.join(' · ')
+  return d?.error ?? d?.detail ?? e?.message ?? fallback
+}
+
+// ---- auth ----
+export async function getAuthStatus(): Promise<AuthStatus> {
+  const { data } = await api.get<AuthStatus>('/auth/status')
+  return data
+}
+
+export async function login(username: string, password: string): Promise<AuthStatus> {
+  const { data } = await api.post<AuthStatus>('/auth/login', { username, password })
+  return data
+}
+
+export async function setupAccount(username: string, password: string): Promise<AuthStatus> {
+  const { data } = await api.post<AuthStatus>('/auth/setup', { username, password })
+  return data
+}
+
+export async function logout(): Promise<void> {
+  await api.post('/auth/logout')
+}
+
+export async function changePassword(currentPassword: string, newPassword: string): Promise<AuthStatus> {
+  const { data } = await api.post<AuthStatus>('/auth/password', { currentPassword, newPassword })
+  return data
+}
+
+// ---- risk ----
+export async function getRiskState(): Promise<RiskState> {
+  const { data } = await api.get<RiskState>('/risk')
+  return data
+}
+
+export async function updateRiskSettings(settings: RiskSettings): Promise<RiskState> {
+  const { data } = await api.put<RiskState>('/risk', settings)
+  return data
+}
+
+export async function setKillSwitch(enabled: boolean, cancelOpenOrders: boolean)
+  : Promise<{ state: RiskState; cancelled: string[]; errors: string[] }> {
+  const { data } = await api.post('/risk/kill-switch', { enabled, cancelOpenOrders })
+  return data
+}
+
+export async function previewOrder(req: PlaceOrderRequest): Promise<OrderPreview> {
+  const { data } = await api.post<OrderPreview>('/trading/orders/preview', req)
+  return data
+}
 
 export async function searchInstruments(query: string): Promise<Instrument[]> {
   const { data } = await api.get<Instrument[]>('/instruments', {
@@ -282,8 +351,9 @@ export async function setTradingBroker(req: SetBrokerRequest): Promise<TradingBr
 }
 
 // ---- orders ----
-export async function placeOrder(req: PlaceOrderRequest): Promise<Order> {
-  const { data } = await api.post<Order>('/trading/orders', req)
+export async function placeOrder(req: PlaceOrderRequest, confirmationToken?: string | null): Promise<Order> {
+  const headers = confirmationToken ? { 'X-Order-Confirmation': confirmationToken } : undefined
+  const { data } = await api.post<Order>('/trading/orders', req, { headers })
   return data
 }
 

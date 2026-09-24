@@ -1,28 +1,36 @@
 import { useCallback, useEffect, useState } from 'react'
 import AsyncSelect from 'react-select/async'
 import {
+  apiErrorMessage,
   cancelOrder,
   getFunds,
   getHoldings,
   getOrders,
   getPositions,
+  getRiskState,
   placeOrder,
+  previewOrder,
+  setKillSwitch,
+  updateRiskSettings,
 } from '../api/client'
 import { searchInstruments } from '../api/client'
 import type {
   Funds,
   Holding,
   Order,
+  OrderPreview,
   OrderType,
   PlaceOrderRequest,
   Position,
   Positions,
   ProductType,
+  RiskSettings,
+  RiskState,
   TradeMarker,
   TransactionType,
 } from '../api/types'
 
-type TradingTab = 'order' | 'orders' | 'positions' | 'holdings' | 'funds'
+type TradingTab = 'order' | 'orders' | 'positions' | 'holdings' | 'funds' | 'risk'
 
 interface SymbolOption {
   value: string
@@ -70,6 +78,8 @@ function OrderForm({
   const [triggerPrice, setTriggerPrice] = useState('')
   const [busy, setBusy] = useState(false)
   const [status, setStatus] = useState<{ ok: boolean; msg: string } | null>(null)
+  // A live-broker order awaiting the user's explicit confirmation.
+  const [pending, setPending] = useState<{ req: PlaceOrderRequest; preview: OrderPreview } | null>(null)
 
   // Sync symbol when the chart changes the active stock.
   useEffect(() => {
@@ -107,7 +117,26 @@ function OrderForm({
       tag: replayMode ? 'replay' : undefined,
     }
     try {
-      const order = await placeOrder(req)
+      const preview = await previewOrder(req)
+      const a = preview.assessment
+      if (a.violations.length) {
+        setStatus({ ok: false, msg: `Blocked: ${a.violations.join(' · ')}` })
+      } else if (preview.confirmationRequired) {
+        setPending({ req, preview })
+      } else {
+        await execute(req, preview.confirmationToken)
+      }
+    } catch (e: any) {
+      setStatus({ ok: false, msg: apiErrorMessage(e, 'Order failed') })
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const execute = async (req: PlaceOrderRequest, token: string | null) => {
+    setBusy(true)
+    try {
+      const order = await placeOrder(req, token)
       setStatus({ ok: true, msg: `${order.status} — ${order.order_id}` })
       // Build the chart marker — use replay bar time if in replay mode.
       const markerTime = replayMode && replayBarTime
@@ -116,18 +145,19 @@ function OrderForm({
       const markerPrice = order.average_price || (replayMode && replayBarPrice ? replayBarPrice : parseFloat(price) || 0)
       onOrderPlaced({
         time: markerTime,
-        side: txnType,
+        side: req.transaction_type,
         price: markerPrice,
-        quantity: parseInt(qty),
+        quantity: req.quantity,
         orderId: order.order_id,
       })
       setQty('')
       if (!replayMode) setPrice('')
       setTriggerPrice('')
     } catch (e: any) {
-      setStatus({ ok: false, msg: e?.response?.data?.detail ?? e?.message ?? 'Order failed' })
+      setStatus({ ok: false, msg: apiErrorMessage(e, 'Order failed') })
     } finally {
       setBusy(false)
+      setPending(null)
     }
   }
 
@@ -233,17 +263,75 @@ function OrderForm({
         </div>
       )}
 
+      {pending && (
+        <OrderConfirm
+          req={pending.req}
+          preview={pending.preview}
+          busy={busy}
+          onConfirm={() => execute(pending.req, pending.preview.confirmationToken)}
+          onCancel={() => { setPending(null); setStatus({ ok: false, msg: 'Order cancelled' }) }}
+        />
+      )}
+
       <div className="of-actions">
         <button
           className={`of-submit ${txnType === 'BUY' ? 'buy' : 'sell'}`}
           onClick={submit}
-          disabled={busy}
+          disabled={busy || pending !== null}
         >
           {busy ? 'Placing…' : `${txnType} ${symbol || '—'}`}
         </button>
         {status && (
           <span className={`ci-status ${status.ok ? 'ok' : 'err'}`}>{status.msg}</span>
         )}
+      </div>
+    </div>
+  )
+}
+
+/** Final check before a real-money order: exactly what will be sent, its value, and any warnings. */
+function OrderConfirm({ req, preview, busy, onConfirm, onCancel }: {
+  req: PlaceOrderRequest
+  preview: OrderPreview
+  busy: boolean
+  onConfirm: () => void
+  onCancel: () => void
+}) {
+  const a = preview.assessment
+  const [secondsLeft, setSecondsLeft] = useState(60)
+  useEffect(() => {
+    const expires = preview.expiresAt ? new Date(preview.expiresAt).getTime() : Date.now() + 60_000
+    const id = window.setInterval(() => {
+      const left = Math.max(0, Math.round((expires - Date.now()) / 1000))
+      setSecondsLeft(left)
+      if (left === 0) onCancel()
+    }, 500)
+    return () => window.clearInterval(id)
+  }, [preview.expiresAt, onCancel])
+
+  const priceText = req.order_type === 'MARKET' ? `MARKET (≈ ₹${a.price != null ? fmt(a.price) : '?'})`
+    : `${req.order_type} ₹${fmt(req.price ?? req.trigger_price ?? 0)}`
+  return (
+    <div className="order-confirm" role="dialog" aria-label="Confirm order">
+      <div className="order-confirm-title">
+        Confirm LIVE order on <strong>{a.broker}</strong>
+      </div>
+      <div className={`order-confirm-line ${req.transaction_type === 'BUY' ? 'pnl-pos' : 'pnl-neg'}`}>
+        {req.transaction_type} {req.quantity} × {req.symbol} ({req.exchange}, {req.product})
+      </div>
+      <div className="order-confirm-line">{priceText}</div>
+      <div className="order-confirm-line">
+        Est. value: <strong>{a.estimatedValue != null ? `₹${fmt(a.estimatedValue)}` : 'unknown'}</strong>
+        {' · '}orders today: {a.ordersToday}
+        {a.dayPnl != null && <> · day P&L: <span className={pnlClass(a.dayPnl)}>₹{fmt(a.dayPnl)}</span></>}
+      </div>
+      {a.warnings.map((w) => <div key={w} className="order-confirm-warn">⚠ {w}</div>)}
+      <div className="order-confirm-actions">
+        <button className="panel-btn" onClick={onCancel} disabled={busy}>Cancel</button>
+        <button className={`of-submit ${req.transaction_type === 'BUY' ? 'buy' : 'sell'}`}
+                onClick={onConfirm} disabled={busy}>
+          {busy ? 'Placing…' : `Confirm ${req.transaction_type} (${secondsLeft}s)`}
+        </button>
       </div>
     </div>
   )
@@ -465,6 +553,125 @@ function FundsTab() {
   )
 }
 
+type LimitKey = 'maxQuantityPerOrder' | 'maxOrderValue' | 'maxOrdersPerDay' | 'maxDailyLoss'
+
+const LIMIT_FIELDS: { key: LimitKey; label: string; hint: string }[] = [
+  { key: 'maxQuantityPerOrder', label: 'Max quantity / order', hint: 'shares' },
+  { key: 'maxOrderValue', label: 'Max order value (₹)', hint: 'price × qty; market orders use last price' },
+  { key: 'maxOrdersPerDay', label: 'Max orders / day', hint: 'counted from the broker order book' },
+  { key: 'maxDailyLoss', label: 'Daily loss limit (₹)', hint: 'realised + open P&L; then only exits allowed' },
+]
+
+export function RiskTab() {
+  const [state, setState] = useState<RiskState | null>(null)
+  const [draft, setDraft] = useState<Record<LimitKey, string>>({
+    maxQuantityPerOrder: '', maxOrderValue: '', maxOrdersPerDay: '', maxDailyLoss: '',
+  })
+  const [flags, setFlags] = useState({ requireConfirmation: true, applyToPaper: true })
+  const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null)
+
+  const apply = (s: RiskState) => {
+    setState(s)
+    const v = (n: number | null) => (n == null ? '' : String(n))
+    setDraft({
+      maxQuantityPerOrder: v(s.settings.maxQuantityPerOrder),
+      maxOrderValue: v(s.settings.maxOrderValue),
+      maxOrdersPerDay: v(s.settings.maxOrdersPerDay),
+      maxDailyLoss: v(s.settings.maxDailyLoss),
+    })
+    setFlags({ requireConfirmation: s.settings.requireConfirmation, applyToPaper: s.settings.applyToPaper })
+  }
+
+  const load = useCallback(() => {
+    getRiskState().then(apply).catch((e) => setMsg({ ok: false, text: apiErrorMessage(e) }))
+  }, [])
+  useEffect(() => { load() }, [load])
+
+  const save = async () => {
+    if (!state) return
+    const num = (x: string) => (x.trim() === '' ? null : Number(x))
+    const settings: RiskSettings = {
+      killSwitch: state.settings.killSwitch,
+      maxQuantityPerOrder: num(draft.maxQuantityPerOrder),
+      maxOrderValue: num(draft.maxOrderValue),
+      maxOrdersPerDay: num(draft.maxOrdersPerDay),
+      maxDailyLoss: num(draft.maxDailyLoss),
+      ...flags,
+    }
+    try {
+      apply(await updateRiskSettings(settings))
+      setMsg({ ok: true, text: 'Limits saved' })
+    } catch (e) {
+      setMsg({ ok: false, text: apiErrorMessage(e, 'Could not save limits') })
+    }
+  }
+
+  const toggleKill = async (on: boolean) => {
+    if (on && !window.confirm('Turn the kill switch ON and cancel all open orders? '
+      + 'Only orders that reduce existing positions will be allowed until you turn it off.')) return
+    try {
+      const r = await setKillSwitch(on, on)
+      apply(r.state)
+      const errors = r.errors ?? []
+      setMsg({
+        ok: errors.length === 0,
+        text: on ? `Kill switch ON — cancelled ${r.cancelled.length} open order(s)${errors.length ? ` · ${errors.join(' · ')}` : ''}`
+          : 'Kill switch off',
+      })
+    } catch (e) {
+      setMsg({ ok: false, text: apiErrorMessage(e) })
+    }
+  }
+
+  if (!state) return <div className="trade-empty">{msg?.text ?? 'Loading…'}</div>
+  const kill = state.settings.killSwitch
+  return (
+    <div className="risk-tab">
+      <div className={`kill-switch ${kill ? 'on' : ''}`}>
+        <div>
+          <div className="kill-title">Kill switch: {kill ? 'ON' : 'off'}</div>
+          <div className="kill-sub">
+            {kill ? 'New positions are blocked; exits are still allowed.'
+              : 'Stops all new exposure and cancels open orders.'}
+          </div>
+        </div>
+        <button className={`kill-btn ${kill ? '' : 'danger'}`} onClick={() => toggleKill(!kill)}>
+          {kill ? 'Turn off' : '⛔ Stop trading'}
+        </button>
+      </div>
+
+      <div className="risk-today">
+        Broker <strong>{state.broker}</strong> · orders today <strong>{state.ordersToday}</strong>
+        {state.dayPnl != null && <> · day P&L <strong className={pnlClass(state.dayPnl)}>₹{fmt(state.dayPnl)}</strong></>}
+        {state.lossLimitReached && <span className="risk-hit"> · loss limit reached</span>}
+      </div>
+
+      {LIMIT_FIELDS.map((f) => (
+        <div className="of-row" key={f.key}>
+          <label title={f.hint}>{f.label}</label>
+          <input className="of-input" type="number" min="0" placeholder="no limit" value={draft[f.key]}
+                 onChange={(e) => setDraft((d) => ({ ...d, [f.key]: e.target.value }))} />
+        </div>
+      ))}
+      <label className="risk-check">
+        <input type="checkbox" checked={flags.requireConfirmation}
+               onChange={(e) => setFlags((f) => ({ ...f, requireConfirmation: e.target.checked }))} />
+        Confirm every live order before it is sent
+      </label>
+      <label className="risk-check">
+        <input type="checkbox" checked={flags.applyToPaper}
+               onChange={(e) => setFlags((f) => ({ ...f, applyToPaper: e.target.checked }))} />
+        Apply limits to paper (mock) trading too
+      </label>
+      <div className="of-actions">
+        <button className="of-submit buy" onClick={save}>Save limits</button>
+        <button className="panel-btn" onClick={load}>Refresh</button>
+        {msg && <span className={`ci-status ${msg.ok ? 'ok' : 'err'}`}>{msg.text}</span>}
+      </div>
+    </div>
+  )
+}
+
 // ---------------------------------------------------------------------------
 // Main TradingPanel — full mode OR compact (chart-side) mode
 // ---------------------------------------------------------------------------
@@ -475,6 +682,7 @@ const FULL_TABS: { id: TradingTab; label: string }[] = [
   { id: 'positions', label: 'Positions' },
   { id: 'holdings', label: 'Holdings' },
   { id: 'funds', label: 'Funds' },
+  { id: 'risk', label: 'Risk' },
 ]
 
 interface TradingPanelProps {
@@ -555,6 +763,7 @@ export default function TradingPanel({
         {tab === 'positions' && <PositionsTab />}
         {tab === 'holdings' && <HoldingsTab />}
         {tab === 'funds' && <FundsTab />}
+        {tab === 'risk' && <RiskTab />}
       </div>
     </div>
   )
