@@ -19,6 +19,7 @@ from fastapi import FastAPI, HTTPException, Query, Request
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
+from app import metrics
 from app.config import settings
 from app.providers import AVAILABLE_PROVIDERS, build_provider
 from app.providers.base import INTERVALS
@@ -32,6 +33,7 @@ from app.trading.models import (
     Positions,
 )
 
+metrics.configure_logging()
 logger = logging.getLogger(__name__)
 
 provider = None        # MarketDataProvider — set on startup
@@ -49,6 +51,7 @@ async def set_active_provider(name: str, enctoken: str | None) -> None:
     old = provider
     provider = new_provider
     settings.market_data_provider = new_provider.name
+    metrics.set_active(provider.name, trading_provider.name if trading_provider else None)
     if enctoken is not None:
         settings.enctoken = enctoken
     if old is not None and old is not new_provider:
@@ -65,6 +68,7 @@ async def set_active_broker(name: str, **credentials: str) -> None:
     old = trading_provider
     trading_provider = new_broker
     settings.trading_broker = new_broker.name
+    metrics.set_active(provider.name if provider else None, new_broker.name)
     if old is not None and old is not new_broker:
         try:
             await old.close()
@@ -86,6 +90,7 @@ async def lifespan(app: FastAPI):
         logger.warning("Trading provider init failed (%s); falling back to mock.", exc)
         from app.trading.mock import MockTradingProvider
         trading_provider = MockTradingProvider()
+    metrics.set_active(provider.name, trading_provider.name)
     yield
     if provider is not None:
         await provider.close()
@@ -99,6 +104,7 @@ app = FastAPI(
     description="Multi-broker NSE market-data and trading service with pluggable providers.",
     lifespan=lifespan,
 )
+metrics.install(app)
 
 
 # ---------------------------------------------------------------------------
@@ -176,15 +182,20 @@ async def stream_ticks(
         raise HTTPException(400, "At least one symbol is required")
 
     async def event_gen():
-        yield ": connected\n\n"
-        last_ping = time.time()
-        async for tick in provider.stream_ticks(syms):
-            if await request.is_disconnected():
-                break
-            yield f"data: {json.dumps(tick.model_dump())}\n\n"
-            if time.time() - last_ping > 15:
-                yield ": ping\n\n"
-                last_ping = time.time()
+        metrics.SSE_CLIENTS.inc()
+        try:
+            yield ": connected\n\n"
+            last_ping = time.time()
+            async for tick in provider.stream_ticks(syms):
+                if await request.is_disconnected():
+                    break
+                metrics.TICKS.inc()
+                yield f"data: {json.dumps(tick.model_dump())}\n\n"
+                if time.time() - last_ping > 15:
+                    yield ": ping\n\n"
+                    last_ping = time.time()
+        finally:
+            metrics.SSE_CLIENTS.dec()
 
     return StreamingResponse(
         event_gen(),

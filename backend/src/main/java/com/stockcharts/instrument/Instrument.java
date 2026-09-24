@@ -1,5 +1,6 @@
 package com.stockcharts.instrument;
 
+import com.fasterxml.jackson.annotation.JsonIgnore;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.Id;
@@ -51,6 +52,7 @@ public class Instrument {
         return instrumentType;
     }
 
+    @JsonIgnore
     public boolean isIndex() {
         return TYPE_INDEX.equals(instrumentType);
     }

@@ -42,8 +42,8 @@ class AngelOneMarketDataProvider(MarketDataProvider):
                 "ANGELONE_API_KEY, ANGELONE_CLIENT_ID, and ANGELONE_TOTP_SECRET are required."
             )
         try:
+            import pyotp  # noqa: F401 — imported to fail fast when the TOTP dependency is missing
             from SmartApi import SmartConnect  # type: ignore
-            import pyotp
         except ImportError as exc:
             raise ImportError(
                 "smartapi-python and pyotp are not installed. "

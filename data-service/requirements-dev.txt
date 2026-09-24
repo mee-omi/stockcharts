@@ -1,0 +1,4 @@
+# Test / lint tooling (not needed at runtime).
+-r requirements.txt
+pytest>=8.2
+ruff>=0.6

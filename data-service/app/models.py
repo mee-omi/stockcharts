@@ -12,6 +12,7 @@ class Instrument(BaseModel):
     name: str              # e.g. "Reliance Industries Ltd"
     instrument_token: int  # Zerodha instrument token
     exchange: str = "NSE"
+    instrument_type: str = "EQ"  # "EQ" (tradable equity) or "INDEX" (non-tradable index)
 
 
 class Candle(BaseModel):

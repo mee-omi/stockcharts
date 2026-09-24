@@ -63,12 +63,15 @@ class ZerodhaEnctokenProvider(MarketDataProvider):
                 continue
             token = int(row.get("instrument_token", 0))
             self._token_cache[sym] = token
+            # Kite's instrument dump marks indices with segment "INDICES".
+            is_index = str(row.get("segment", "")).upper() == "INDICES"
             out.append(
                 Instrument(
                     symbol=sym,
                     name=str(row.get("name", sym)),
                     instrument_token=token,
                     exchange="NSE",
+                    instrument_type="INDEX" if is_index else "EQ",
                 )
             )
         return out

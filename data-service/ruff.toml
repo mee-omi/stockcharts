@@ -1,0 +1,6 @@
+# Lint baseline for the data service (run: ruff check app tests).
+line-length = 120
+target-version = "py312"
+
+[lint]
+select = ["E", "F", "I"]

@@ -4,6 +4,7 @@ uvicorn[standard]>=0.30.0
 pydantic>=2.9.0
 pydantic-settings>=2.5.0
 httpx>=0.27.0
+prometheus-client>=0.20.0
 
 # For real Zerodha data (MARKET_DATA_PROVIDER=zerodha) also install:
 #   pip install -r requirements-zerodha.txt
