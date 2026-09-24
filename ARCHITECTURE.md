@@ -1,22 +1,27 @@
 # StockCharts — Features & Architecture
 
-This document describes what StockCharts does and how it is built. It was written from the
-current source, so it also covers parts the older docs do not: the trading module, the
-Angel One and Groww integrations, and bar replay. For endpoint-by-endpoint detail see
-[`DOCUMENTATION.md`](DOCUMENTATION.md); for quick start see [`README.md`](README.md).
+This document describes what StockCharts does and how it is built, written from the current
+source. For endpoint-by-endpoint detail see [`DOCUMENTATION.md`](DOCUMENTATION.md) (older, and
+without the modules added since); for quick start and operations see [`README.md`](README.md).
 
 ---
 
 ## 1. What the application is
 
-StockCharts is a self-hosted web app for **technical charting, screening and trading of NSE
-(National Stock Exchange of India) stocks**. It combines:
+StockCharts is a self-hosted web app for **technical charting, screening, alerting, backtesting
+and trading of Indian stocks** (NSE, plus NSE/BSE indices). It combines:
 
-- a TradingView-style candlestick chart with built-in and user-defined indicators,
-- a multi-stock screener driven by a small formula language,
+- a TradingView-style chart: several chart types, built-in and user-defined indicators,
+  drawings, symbol comparison, live updates and bar replay,
+- a **watchlist** with live prices and day change,
+- a multi-stock **screener** driven by a small formula language, over index universes,
+- **alerts** on price levels or any formula, delivered in-app, as browser notifications,
+  to Telegram or to a webhook,
+- a rule-based **backtester** that reuses the same formula language,
 - a trading panel (orders, positions, holdings, funds) that talks to a real broker or a
   paper-trading simulator,
-- a bar-by-bar **replay** mode for manual backtesting.
+- a **trade journal** and **portfolio report**: realised P&L, estimated charges and a
+  capital-gains tax estimate by financial year.
 
 With no configuration, it runs on **synthetic market data** and a **paper-trading broker**,
 so the whole stack works without credentials. You switch to real data or a real broker
@@ -29,84 +34,121 @@ through configuration, or at runtime from the UI.
 ### 2.1 Charting
 | Feature | Details | Where |
 |---|---|---|
-| Symbol search | Async dropdown over the synced instrument table (symbol or name) | `StockSearch.tsx` → `GET /instruments` |
-| Candlestick + volume | `lightweight-charts`; volume histogram overlaid at the bottom of the main pane | `Chart.tsx` |
+| Symbol search | Async dropdown over the synced instrument table; indices and non-NSE listings are tagged | `StockSearch.tsx` → `GET /instruments` |
+| Chart types | Candles, Heikin-Ashi, OHLC bars, line, area; volume histogram underneath | `Chart.tsx`, `lib/chartMath.ts` |
 | Timeframes | `1m, 5m, 15m, 30m, 1h, 1d` | `TimeframeBar.tsx`, `Timeframe.java` |
-| Overlay indicators | Drawn on the price pane (SMA, EMA, WMA, BBANDS, VWAP, overlay customs) | `Chart.tsx` |
-| Oscillator pane | Non-overlay indicators (RSI, MACD, STOCH, ATR, ADX, OBV, CCI) in a second chart with a synced time scale | `Chart.tsx` |
-| Live updates | STOMP subscription to `/topic/ticks/{symbol}` updates the last candle in place | `ws/stomp.ts`, `Chart.tsx` |
-| Trade markers | Orders placed from the quick-trade panel show as buy/sell arrows on the chart | `App.tsx`, `TradingPanel.tsx` |
+| Overlay indicators | Price pane: SMA, EMA, WMA, BBANDS, VWAP, overlay customs | `Chart.tsx` |
+| Oscillator pane | RSI, MACD, STOCH, ATR, ADX, OBV, CCI in a second chart with a synced time scale | `Chart.tsx` |
+| Live updates | STOMP `/topic/ticks/{symbol}`; `LiveBarBuilder` updates the current bar and starts a new one at each bucket boundary on **every** timeframe | `ws/stomp.ts`, `lib/chartMath.ts` |
+| Compare | Overlay a second symbol; both series switch to a percentage scale | `ChartToolbar.tsx`, `Chart.tsx` |
+| Drawings | Horizontal level (1 click), trend line and Fibonacci retracement (2 clicks); saved per symbol, undo/clear | `Chart.tsx`, `/ui-state/drawings:{symbol}` |
+| More history | Fetches 500 older bars per click | `App.tsx` |
+| Saved layout | Symbol, timeframe, indicators, chart type and watchlist restored on load | `/ui-state/layout` |
+| Trade markers | Buy/sell arrows for orders placed from the quick-trade panel or for backtest trades | `App.tsx`, `TradingPanel.tsx`, `BacktestView.tsx` |
 
 ### 2.2 Indicators
-- **12 built-ins**: `SMA, EMA, WMA, RSI, MACD, BBANDS, STOCH, ATR, ADX, OBV, VWAP, CCI`.
-  Each has configurable parameters. The catalog, including parameter defaults, is served by
-  `GET /indicators`.
-- **Own TA library** (`com.stockcharts.ta.Indicators`): primitive `double[]` math with no
-  external TA dependency. Despite what the README says, TA4J is not used.
-- **Custom indicators**: named formulas such as `ema_spread = ema(close,9) - ema(close,21)`.
-  They are stored in the DB and listed in the catalog next to the built-ins. A custom
-  indicator can reference other custom indicators; circular references are detected.
+- **12 built-ins**: `SMA, EMA, WMA, RSI, MACD, BBANDS, STOCH, ATR, ADX, OBV, VWAP, CCI`,
+  with parameters. The catalog is served by `GET /indicators`.
+- **Own TA library** (`com.stockcharts.ta.Indicators`): primitive `double[]` math, no
+  external TA dependency.
+- **Custom indicators**: named formulas such as `ema_spread = ema(close,9) - ema(close,21)`,
+  stored in the DB and listed with the built-ins. They can reference each other; cycles are
+  rejected.
 
-### 2.3 Expression language (shared by custom indicators and screeners)
+### 2.3 Expression language (custom indicators, screeners, alerts, backtests)
 - **Price fields**: `open, high, low, close, volume, hl2, hlc3 (typical), ohlc4`
 - **Functions**: `sma, ema, wma, rma, rsi, stdev, highest, lowest, change, abs, macd,
   bb_upper, bb_middle, bb_lower, atr, adx, cci, vwap, stoch_k, stoch_d, obv, crossover,
   crossunder, max, min`
 - **Operators**: `+ - * / %`, comparisons `> >= < <= == !=`, logic `and or not`
-- **Sandboxing**: a hand-written lexer, parser and evaluator (`com.stockcharts.expr`). Only
-  whitelisted fields and functions are allowed; there is no reflection or scripting engine.
-  Expressions are limited to 2000 characters and compiled ASTs are cached.
-- **Validation**: each expression is test-evaluated on a synthetic 60-bar series. Unknown
-  identifiers are rejected, which catches typos.
+- **Sandboxing**: hand-written lexer, parser and evaluator (`com.stockcharts.expr`); only
+  whitelisted fields and functions; 2000-character limit; compiled ASTs cached.
+- **Validation**: test-evaluated on a synthetic series; unknown identifiers rejected.
+  `SeriesEvaluator` is the shared entry point that also resolves custom-indicator references.
 
 ### 2.4 Screener
-- A boolean expression is evaluated at the **latest bar** of every symbol in a universe.
-  Matches are returned with extra user-defined columns, such as the RSI value.
-- **Universes**: `index` (built-in NIFTY-50 list), `list` (comma-separated), `watchlist`
-  (saved), or `all` (every synced instrument).
-- **Parallel evaluation**: runs on a dedicated `ForkJoinPool`. Scans are bounded by
-  `max-universe` (500), `parallelism` (8) and `result-limit` (200).
-- **Saved screeners** and **watchlists**: full CRUD, persisted in Postgres.
-- **Guided condition builder** (`ConditionBuilder.tsx`): the user picks metric, operator and
-  value rows joined with AND/OR. The builder generates an expression that can be edited
-  directly in advanced mode. Clicking a result opens that symbol's chart.
+- A boolean expression evaluated at the **latest bar** of every symbol in a universe, with
+  extra display columns.
+- **Universes**: `index` with a code (`NIFTY50` default, `BANKNIFTY`, `NIFTYIT`, `NIFTYAUTO`,
+  `NIFTYPHARMA`, `NIFTYFMCG` — `GET /screener/universes`), `list`, `watchlist`, or `all`
+  (every equity; indices excluded).
+- Parallel evaluation on a dedicated `ForkJoinPool`, bounded by `max-universe` (500),
+  `parallelism` (8) and `result-limit` (200). Saved screeners and watchlists; guided
+  condition builder in the UI.
 
-### 2.5 Trading
-- **Order ticket**: MARKET, LIMIT, SL and SL-M order types; BUY or SELL; product types
-  CNC, MIS and NRML.
-- **Tabs** for Orders (with cancel), Positions (net/day), Holdings and Funds.
-- **Quick-trade side panel** on the chart view. In replay mode it pre-fills the current bar's
-  close and tags the order `replay`.
-- **Brokers** (switchable at runtime from the *broker* button):
+### 2.5 Watchlist panel
+- Pick or create a watchlist, add symbols (equities or indices), remove them, click to open.
+- Last price and day change from `GET /quotes` (polled every 10 s, cached 2 s server-side),
+  moved between polls by live ticks.
+- Subscribing to a symbol's ticks makes the backend stream it (see 4.2), so watchlist symbols
+  are live rather than only the five configured ones.
+
+### 2.6 Alerts
+- Condition = expression on one symbol/timeframe. UI templates: price crosses above/below,
+  is above/below (`crossover(close, 3000)`, `close > 3000`, …) or any custom expression.
+- **Trigger modes**: `ONCE` (then `TRIGGERED`, can be re-armed) or `EVERY_BAR` (at most once
+  per bar while true). Alerts can be paused; one whose expression stops working (e.g. a deleted
+  custom indicator) is paused automatically.
+- Evaluated every 15 s (`stockcharts.alerts.interval`) by `AlertService`, grouped by
+  (symbol, timeframe) so each series loads once. Fires are stored in `alert_event`.
+- **Delivery** (`AlertNotifier`): STOMP `/topic/alerts` → Alerts page and in-app toast, plus a
+  browser notification when permitted and the tab is hidden; optional Telegram bot and
+  generic JSON webhook (fire-and-forget, so slow endpoints never stall evaluation).
+
+### 2.7 Backtester
+- Inputs: symbol, timeframe, date range (defaults: 3y for 1d, 180d for 1h, 10d for 1m, 30d
+  otherwise), entry and optional exit expressions, long or short, stop-loss % and take-profit %,
+  capital, position size % of equity (no leverage), commission and slippage per leg.
+- **Execution model** (`BacktestEngine`, pure and unit-tested): signals read at a bar's close
+  fill at the next bar's open (no look-ahead); stops/targets checked against each bar's
+  high/low, stop first if both are touched, gaps filled at the open; a position still open at
+  the end is closed at the last close.
+- Output: net profit, return vs buy-and-hold, trades, win rate, average win/loss, profit factor,
+  max drawdown, annualised Sharpe (NSE session length), exposure, average holding period,
+  costs; equity + drawdown curve (thinned to 2,000 points); trade list; "show trades on chart".
+
+### 2.8 Trading
+- **Order ticket**: MARKET, LIMIT, SL, SL-M; BUY/SELL; CNC, MIS, NRML. Tabs for Orders (with
+  cancel), Positions, Holdings, Funds. Quick-trade side panel on the chart (pre-filled in replay).
+- **Brokers** (runtime switch):
 
 | Broker | Status | Credentials |
 |---|---|---|
-| `mock` (default) | In-memory paper trading with ₹10 lakh virtual cash. MARKET orders fill at a seed price; LIMIT orders fill if the price is within 1% of it, otherwise they stay OPEN. | none |
+| `mock` (default) | In-memory paper trading, ₹10 lakh virtual cash. MARKET orders fill at a fixed seed price; LIMIT orders within 1% of it fill, others stay OPEN. | none |
 | `zerodha` | Real orders via Kite Connect | `api_key` + daily `access_token` |
 | `angelone` | Real orders via SmartAPI | `api_key`, `client_id`, TOTP secret |
-| `groww` | Stub that raises `NotImplementedError` (Groww has no public API) | — |
+| `groww` | Stub (no public Groww API) | — |
 
-### 2.6 Market-data sources (switchable at runtime from the *source* button)
+### 2.9 Trade journal & portfolio report
+- **Journal**: every order placed through the app that comes back `COMPLETE` is recorded
+  (`source=APP`); "Import from broker" pulls completed orders from the broker's order book
+  (`SYNC`, idempotent per broker order id); trades can also be typed in (`MANUAL`). Each fill can
+  carry a strategy label and notes.
+- **Report** (`PortfolioReport`, pure and unit-tested): FIFO lot matching per symbol (longs and
+  shorts). Each closed lot is **INTRADAY** (same IST day or MIS), **LTCG** (long lot held more than
+  12 months) or **STCG**. Estimated charges per leg (discount-broker brokerage, STT, NSE
+  transaction charge, SEBI fee, stamp duty, GST). Summaries by category, symbol and IST day
+  (cumulative P&L chart), open lots, and per **financial year** a tax estimate: STCG 20%, LTCG
+  12.5% above ₹1.25 lakh, plus 4% cess, with short-term losses set off against long-term gains.
+  All assumptions are returned with the report; CSV export for spreadsheets or a CA.
+
+### 2.10 Market data
 | Provider | Historical | Live |
 |---|---|---|
-| `mock` (default) | Deterministic random walk per symbol and interval, over about 50 NSE stocks | Synthetic ticks every `TICK_INTERVAL_SECONDS` |
-| `zerodha` | PyZData with an **enctoken** (no paid API). Sync calls run in worker threads. | Polls the latest 1m candle every `ZERODHA_POLL_SECONDS` |
-| `kiteticker` | Delegates to `zerodha` | Stub: a real KiteTicker websocket is not wired yet |
-| `angelone` | SmartAPI candles | Polling the latest 1m candle |
-| `groww` | Falls back to mock | Falls back to mock |
+| `mock` (default) | ~75 NSE stocks + 8 NSE/BSE indices. Price is a deterministic function of time (drift + multi-period cycles + hashed noise), so every timeframe agrees and restarts reproduce the same data | Ticks sample the same curve |
+| `zerodha` | PyZData with an enctoken; indices flagged from the `INDICES` segment | Polls the latest 1m candle |
+| `kiteticker` | Delegates to `zerodha` | Stub |
+| `angelone` | SmartAPI candles | Polling |
+| `groww` | Mock fallback | Mock fallback |
 
-Switching the source re-syncs the instrument table and restarts the backend's live stream.
+Instruments carry `instrument_type` (`EQ` or `INDEX`). Switching the source re-syncs instruments,
+forgets client-requested live symbols and restarts the backend's live stream.
 
-### 2.7 Bar replay
-The **⏵ Replay** control hides future bars and reveals them one at a time. You can step
-±1, scrub, or auto-play at 1, 2, 5 or 10 bars per second. Indicator lines and trade markers
-are cut off at the replay position. Replay is entirely client-side: the full dataset is
-already loaded and `Chart` only renders the first *N* bars.
-
-### 2.8 PWA and mobile
-The app uses `vite-plugin-pwa` for its manifest, service worker (auto-update) and icons, with
-a mobile-first layout. It can be installed with "Add to Home Screen". The dev server binds to
-`0.0.0.0`, and SockJS provides a fallback for restrictive mobile networks.
+### 2.11 Bar replay, PWA and mobile
+- **Replay** hides future bars and reveals them one at a time or at 1–10 bars/s; indicators,
+  markers and the compare overlay are cut off at the replay position.
+- **PWA** (installable, auto-updating service worker), mobile-first layout: on small screens the
+  header wraps, the view tabs scroll horizontally and panels stack above a fixed-height chart.
 
 ---
 
@@ -125,10 +167,12 @@ flowchart TB
     end
 
     subgraph Backend["Spring Boot 3.3 · Java 21 · :8080"]
+        RL["Rate-limit filter"]
         REST["REST controllers<br/>/api/v1/*"]
-        STOMP["STOMP broker<br/>/ws → /topic/ticks/{sym}"]
-        SVC["Services<br/>Candle · Instrument · Indicator<br/>Expression · Screener · Live"]
+        STOMP["STOMP broker (in-memory or relay)<br/>/topic/ticks/{sym} · /topic/alerts"]
+        SVC["Services<br/>Candle · Instrument · Indicator · Expression<br/>Screener · Alert · Backtest · Journal · Quote · Live"]
         CLIENTS["WebClient<br/>MarketDataClient · TradingClient"]
+        SCHED["Schedulers (ShedLock in cluster mode)<br/>alert evaluation · instrument sync"]
     end
 
     subgraph Data["Python FastAPI data-service · :8000"]
@@ -136,79 +180,93 @@ flowchart TB
         TR["TradingProvider<br/>mock | zerodha | angelone | groww"]
     end
 
-    DB[("PostgreSQL 16 + TimescaleDB<br/>instrument · candle (hypertable)<br/>custom_indicator · screener · watchlist")]
+    DB[("PostgreSQL 16 + TimescaleDB<br/>candle (hypertable) · instrument · custom_indicator<br/>screener · watchlist · alert · alert_event<br/>trade_journal · ui_state · shedlock")]
     EXT["Brokers: Zerodha Kite ·<br/>Angel One SmartAPI"]
+    NOTIFY["Telegram / webhook"]
+    PROM["Prometheus"]
 
     UI -- "REST (axios)" --> NGINX
     UI -- "STOMP over SockJS" --> NGINX
-    NGINX --> REST
+    NGINX --> RL --> REST
     NGINX --> STOMP
     REST --> SVC
+    SCHED --> SVC
     SVC --> CLIENTS
     SVC -- JPA / Flyway --> DB
     CLIENTS -- "HTTP (instruments, history, orders)" --> Data
     CLIENTS -- "SSE /api/stream/ticks" --> MD
-    SVC -- "push LiveUpdate" --> STOMP
+    SVC -- "LiveUpdate · AlertEvent" --> STOMP
+    SVC -- "alerts" --> NOTIFY
     MD --> EXT
     TR --> EXT
+    PROM -. "/actuator/prometheus · /metrics" .-> Backend
+    PROM -.-> Data
 ```
 
 **Main design rule:** everything specific to a broker or provider lives in the Python service,
 behind two abstract interfaces (`MarketDataProvider` and `TradingProvider`). The Java backend
-does not know which provider is active. It owns the domain API, indicator math, expression
-engine, screener, persistence and the client-facing WebSocket. The browser talks only to the
-backend, never to the data service.
+does not know which provider is active. It owns the domain API, indicator math, the expression
+engine and everything built on it (screener, alerts, backtests), persistence, the journal and
+the client-facing WebSocket. The browser talks only to the backend.
 
 ### 3.2 Components
 
 | Tier | Tech | Responsibility |
 |---|---|---|
-| **Frontend** (`frontend/`) | React 18, TS, Vite, lightweight-charts, react-select, @stomp/stompjs + SockJS, axios, vite-plugin-pwa; served by nginx | UI; three views (Chart / Screener / Trade) and modals for custom indicators, data source and broker |
-| **Backend** (`backend/`) | Spring Boot 3.3 (web + webflux WebClient + websocket + JPA + validation + actuator), Flyway, springdoc-openapi | `/api/v1` REST, STOMP push, candle cache/backfill, tick aggregation, indicators, expressions, screener, trading proxy |
-| **Data service** (`data-service/`) | Python 3.12, FastAPI, pydantic-settings, optional PyZData / kiteconnect / smartapi-python | Pluggable market data (REST + SSE) and pluggable trading; runtime hot-swap |
-| **Database** | PostgreSQL 16 + TimescaleDB 2.17 | Instruments, OHLCV candles (hypertable if the extension exists), user objects |
-| **Infra** | Docker (multi-stage), docker-compose, Kubernetes/Kustomize (base + dev/prod overlays), Makefile | Build and deploy |
+| **Frontend** (`frontend/`) | React 18, TS, Vite, lightweight-charts, react-select, @stomp/stompjs + SockJS, axios, vite-plugin-pwa; vitest + Playwright; served by nginx | Six views (Chart, Screener, Backtest, Alerts, Portfolio, Trade), watchlist/indicator/trade side panels, modals for custom indicators, data source and broker; alert toasts |
+| **Backend** (`backend/`) | Spring Boot 3.3 (web, webflux WebClient, websocket, JPA, cache, actuator), Flyway, Caffeine, Micrometer/Prometheus, ShedLock, logstash encoder, springdoc | `/api/v1` REST, STOMP push, candle cache/backfill, tick aggregation, indicators, expressions, screener, alerts, backtests, journal/report, quotes, UI state, trading proxy, rate limiting |
+| **Data service** (`data-service/`) | Python 3.12, FastAPI, pydantic-settings, prometheus-client, optional PyZData / kiteconnect / smartapi-python; pytest + ruff | Pluggable market data (REST + SSE) and trading; runtime hot-swap; metrics |
+| **Database** | PostgreSQL 16 + TimescaleDB 2.17 | Candles (hypertable when available), instruments, user objects, alerts, journal, UI state |
+| **Infra** | Docker, docker-compose, Kubernetes/Kustomize (base + dev/prod), GitHub Actions, Makefile, backup scripts | Build, test, deploy, back up |
 
 ### 3.3 Backend package map (`com.stockcharts.*`)
 
 | Package | Key classes | Role |
 |---|---|---|
-| `instrument` | `InstrumentService`, `InstrumentController` | Sync the universe from the data service on startup and every 6h; search |
+| `instrument` | `InstrumentService`, `InstrumentController` | Sync the universe on startup and every 6h (cached search/exists) |
 | `candle` | `CandleService`, `Candle`, `Timeframe` | Read-through candle cache with backfill |
 | `marketdata` | `MarketDataClient`, `DataSourceController` | WebClient to the data service; switch provider |
-| `live` | `LiveDataService`, `TickAggregator`, `LiveUpdate` | SSE → 1m bars → STOMP broadcast |
+| `live` | `LiveDataService`, `LiveSubscriptionListener`, `TickAggregator` | SSE → 1m bars → STOMP; streams configured + client-subscribed symbols |
 | `ta` | `Indicators`, `PriceSeries` | Primitive-array TA library |
-| `indicator` | `IndicatorEngine`, `IndicatorType`, `CustomIndicatorService` | Built-in plus custom indicator computation; catalog; custom CRUD |
-| `expr` | `Lexer`, `Parser`, `Expr` (sealed AST), `Evaluator`, `ExpressionService` | Sandboxed formula language |
-| `screener` | `ScreenerService`, `Screener`, `Watchlist` | Universe resolution, parallel scan, saved screeners and watchlists |
-| `trading` | `TradingController`, `TradingClient`, DTOs | Thin proxy to the data-service trading API |
-| `config` | `WebSocketConfig`, `CorsConfig`, `WebClientConfig`, `ApiExceptionHandler`, `AppProperties` | Cross-cutting configuration and error mapping (400 / 404) |
+| `indicator` | `IndicatorEngine`, `CustomIndicatorService`, `SeriesEvaluator` | Built-in + custom indicators; shared expression evaluation |
+| `expr` | `Lexer`, `Parser`, `Expr`, `Evaluator`, `ExpressionService` | Sandboxed formula language |
+| `screener` | `ScreenerService`, `IndexUniverses`, `Screener`, `Watchlist` | Universes, parallel scans, saved screeners and watchlists |
+| `alert` | `AlertService`, `AlertNotifier`, `Alert`, `AlertEvent` | Alert CRUD, scheduled evaluation, delivery |
+| `backtest` | `BacktestService`, `BacktestEngine` | Rule-based backtests |
+| `journal` | `JournalService`, `PortfolioReport`, `ChargesModel` | Trade journal, FIFO P&L, charges, tax estimate, CSV |
+| `quote` | `QuoteService` | Last price / day change for watchlists |
+| `uistate` | `UiStateController` | JSON key/value store for layout and drawings |
+| `trading` | `TradingController`, `TradingClient` | Proxy to the data-service trading API; journals fills |
+| `config` | `RateLimitFilter`, `CacheConfig`, `ClusterConfig`, `WebSocketConfig`, `ApiExceptionHandler`, `AppProperties` | Cross-cutting concerns |
 
 ### 3.4 Data service layout (`data-service/app/`)
 
 ```
 main.py            FastAPI app, lifespan, runtime swap of provider/broker, all routes
+metrics.py         Prometheus metrics (/metrics) and optional JSON logging
 config.py          pydantic-settings (env / .env)
-models.py          Instrument, Candle, Tick
+models.py          Instrument (with instrument_type), Candle, Tick
 providers/         base.py (ABC) + mock, zerodha, kiteticker, angelone, groww, nse_universe
 trading/           base.py (ABC) + models.py + mock, zerodha, angelone, groww
+../tests/          pytest: mock data, paper broker, HTTP API, metrics
 ```
-Both factories (`build_provider` and `build_trading_provider`) **import lazily**, so optional
-broker SDKs are only needed when that provider is selected. The Dockerfile installs them
-through build args (`ZERODHA`, `ZERODHA_TRADE`, `ANGELONE`).
 
-### 3.5 Database schema (Flyway `V1`–`V3`)
+### 3.5 Database schema (Flyway `V1`–`V8`)
 
 | Table | Key | Notes |
 |---|---|---|
-| `instrument` | `symbol` | name, instrument_token, exchange |
-| `candle` | `(symbol, timeframe, open_time)` | OHLCV as `DOUBLE PRECISION`; converted to a TimescaleDB hypertable when available, otherwise a plain table |
+| `instrument` | `symbol` | name, token, exchange, `instrument_type` (V4) |
+| `candle` | `(symbol, timeframe, open_time)` | OHLCV; TimescaleDB hypertable when available |
 | `custom_indicator` | `name` | expression, overlay flag, description |
-| `watchlist` | `name` | comma-separated symbols |
-| `screener` | `name` | expression, universe type/value, timeframe |
+| `watchlist`, `screener` | `name` | symbol CSV; saved screener definition |
+| `alert` (V5) | `id` | symbol, timeframe, expression, trigger mode, status, trigger memory |
+| `alert_event` (V5) | `id` | denormalised fire history (survives alert deletion) |
+| `ui_state` (V6) | `state_key` | JSON documents ≤ 64 KiB (`layout`, `drawings:{symbol}`) |
+| `trade_journal` (V7) | `id`; unique `(broker, order_id)` | fills with side, product, qty, price, time, tag, strategy, notes, source |
+| `shedlock` (V8) | `name` | scheduler locks for cluster mode |
 
-The `dev` Spring profile swaps in in-memory H2 with `ddl-auto=create-drop` and Flyway turned
-off, so the backend can run without Postgres.
+The `dev` profile uses in-memory H2 (schema from entities). `PostgresMigrationTest` applies the
+real migrations to Postgres and runs Hibernate schema validation; CI runs it on TimescaleDB.
 
 ---
 
@@ -222,52 +280,53 @@ sequenceDiagram
     participant BE as Backend
     participant DB as TimescaleDB
     participant DS as Data service
-    UI->>BE: POST /api/v1/indicators/apply {symbol, timeframe, indicators[]}
+    UI->>BE: GET /ui-state/layout (first load) · POST /indicators/apply
     BE->>DB: latest & earliest stored candle
-    alt stale (latest older than 2 bars) or missing history
+    alt stale or missing history
         BE->>DS: GET /api/historical/{sym}?interval&from&to
         DS-->>BE: candles
         BE->>DB: upsert candles
     end
     BE->>DB: select candles in range
-    BE->>BE: PriceSeries → IndicatorEngine (built-in / custom via expression engine)
-    BE-->>UI: candles + time-aligned indicator lines (NaN → null)
+    BE->>BE: IndicatorEngine (built-in / custom via SeriesEvaluator)
+    BE-->>UI: candles + aligned indicator lines
+    UI->>BE: GET /ui-state/drawings:{sym} · STOMP SUBSCRIBE /topic/ticks/{sym}
 ```
-The default range is `BACKFILL_DAYS` (5) for intraday timeframes and 365 days for `1d`.
+Default range: `BACKFILL_DAYS` (5) intraday, 365 days daily; "More history" extends `from`.
 
 ### 4.2 Live ticks
 
 ```mermaid
 sequenceDiagram
-    participant DS as Data service
-    participant LD as LiveDataService
-    participant AG as TickAggregator
-    participant DB as DB
     participant UI as Browsers
-    LD->>DS: GET /api/stream/ticks?symbols=LIVE_SYMBOLS (SSE, retry w/ backoff 2s→30s)
+    participant LS as LiveSubscriptionListener
+    participant LD as LiveDataService
+    participant DS as Data service
+    participant AG as TickAggregator
+    UI->>LS: SUBSCRIBE /topic/ticks/TCS
+    LS->>LD: request("TCS") (known symbol, under the cap)
+    LD->>LD: debounce 750 ms, then reconnect
+    LD->>DS: GET /api/stream/ticks?symbols=configured+requested (SSE, backoff 2s→30s)
     loop each tick
         DS-->>LD: {symbol, ltp, volume, timestamp}
-        LD->>AG: onTick
-        AG->>DB: upsert current 1m candle
-        LD->>UI: STOMP /topic/ticks/{symbol} LiveUpdate
+        LD->>AG: onTick → upsert current 1m candle
+        LD->>UI: /topic/ticks/{symbol} LiveUpdate
     end
+    UI->>UI: LiveBarBuilder folds 1m updates into the chart's timeframe
 ```
-Only symbols listed in `stockcharts.live-symbols` are streamed (by default `RELIANCE, TCS,
-HDFCBANK, INFY, ICICIBANK`). Other symbols show history but do not tick. Ticks are aggregated
-only into **1-minute** candles; higher timeframes pick up new data through the backfill check.
 
-### 4.3 Screener run
-`POST /screener/run` → validate and compile the expression → resolve the universe (filtered to
-known instruments and capped at `max-universe`) → in parallel, for each symbol: load candles
-(backfilling if needed) → compute any referenced custom indicators → evaluate → keep the
-symbol if the last value is above 0.5 → evaluate the extra columns → sort by symbol and apply
-the limit.
+### 4.3 Screener, alerts and backtests
+All three compile user expressions through `SeriesEvaluator`:
+- **Screener**: validate → resolve universe → parallel per-symbol evaluation at the last bar.
+- **Alerts**: every 15 s, active alerts grouped by (symbol, timeframe) → one candle load per group
+  → evaluate each alert at the last bar → fire (persist event, notify) according to its mode.
+- **Backtest**: load the range → evaluate entry/exit over the whole series → `BacktestEngine`.
 
-### 4.4 Trading and switching source or broker
-`TradingController` → `TradingClient` (WebClient) → `data-service /api/trading/*` → active
-`TradingProvider`. `POST /datasource` and `POST /broker` forward to the data service, which
-builds the new provider, swaps the global reference and closes the old one. On a data-source
-switch, the backend also re-syncs instruments and restarts the live stream.
+### 4.4 Trading, journal and reports
+`TradingController` → `TradingClient` → data service → active `TradingProvider`. A `COMPLETE`
+response is journalled (failures to journal never fail the order). `/journal/sync` imports the
+broker's completed orders; `/portfolio/report` rebuilds FIFO matches from the full journal and
+filters by close date and broker.
 
 ---
 
@@ -277,16 +336,22 @@ switch, the backend also re-syncs instruments and restarts the live stream.
 |---|---|
 | Instruments | `GET /instruments?query=` |
 | Candles | `GET /candles/{symbol}?timeframe=&from=&to=` |
+| Quotes | `GET /quotes?symbols=A,B` (≤ 100) |
 | Indicators | `GET /indicators`, `POST /indicators/apply` |
 | Custom indicators | `GET/POST /custom-indicators`, `PUT/DELETE /custom-indicators/{name}`, `POST /custom-indicators/validate` |
-| Screener | `POST /screener/run`, `GET/POST /screener`, `DELETE /screener/{name}`, `POST /screener/{name}/run` |
+| Screener | `GET /screener/universes`, `POST /screener/run`, `GET/POST /screener`, `DELETE /screener/{name}`, `POST /screener/{name}/run` |
 | Watchlists | `GET/POST /watchlists`, `GET/DELETE /watchlists/{name}` |
+| Alerts | `GET/POST /alerts`, `PUT/DELETE /alerts/{id}`, `POST /alerts/{id}/status`, `GET /alerts/events`, `POST /alerts/evaluate` |
+| Backtest | `POST /backtest` |
+| Journal | `GET/POST /journal`, `PUT/DELETE /journal/{id}`, `POST /journal/sync` |
+| Portfolio | `GET /portfolio/report`, `GET /portfolio/report.csv` (`from`, `to`, `broker`) |
+| UI state | `GET/PUT/DELETE /ui-state/{key}` |
 | Data source | `GET/POST /datasource` |
-| Trading | `GET/POST /broker`, `GET/POST /trading/orders`, `PUT/DELETE /trading/orders/{id}`, `GET /trading/positions`, `GET /trading/holdings`, `GET /trading/funds` |
-| WebSocket | `/ws` (STOMP, with SockJS and raw WebSocket) → subscribe `/topic/ticks/{SYMBOL}` |
-| Docs / ops | `/swagger-ui.html`, `/actuator/health` |
+| Trading | `GET/POST /broker`, `GET/POST /trading/orders`, `PUT/DELETE /trading/orders/{id}`, `GET /trading/positions`, `/holdings`, `/funds` |
+| WebSocket | `/ws` (STOMP, SockJS or raw) → `/topic/ticks/{SYMBOL}`, `/topic/alerts` |
+| Ops | `/swagger-ui.html`, `/actuator/health`, `/actuator/metrics`, `/actuator/prometheus` |
 
-Data-service internal API: `/health`, `/api/provider`, `/api/instruments`,
+Data-service internal API: `/health`, `/metrics`, `/api/provider`, `/api/instruments`,
 `/api/historical/{symbol}`, `/api/stream/ticks` (SSE), `/api/broker`, `/api/trading/*`.
 
 ---
@@ -295,56 +360,58 @@ Data-service internal API: `/health`, `/api/provider`, `/api/instruments`,
 
 | Setting | Where | Default |
 |---|---|---|
-| `MARKET_DATA_PROVIDER` | data-service | `mock` |
-| `ENCTOKEN` | data-service | — (needed for `zerodha` / `kiteticker`) |
-| `TRADING_BROKER` | data-service | `mock` |
-| `ZERODHA_API_KEY`, `ZERODHA_ACCESS_TOKEN` | data-service | — |
-| `ANGELONE_API_KEY`, `ANGELONE_CLIENT_ID`, `ANGELONE_TOTP_SECRET` | data-service | — |
-| `TICK_INTERVAL_SECONDS`, `ZERODHA_POLL_SECONDS` | data-service | `1.0`, `5.0` |
-| `DATA_SERVICE_URL` | backend | `http://localhost:8000` |
-| `LIVE_SYMBOLS` | backend | `RELIANCE,TCS,HDFCBANK,INFY,ICICIBANK` |
+| `MARKET_DATA_PROVIDER`, `ENCTOKEN`, `TICK_INTERVAL_SECONDS`, `ZERODHA_POLL_SECONDS` | data-service | `mock`, —, `1.0`, `5.0` |
+| `TRADING_BROKER` + broker credentials | data-service | `mock` |
+| `LOG_FORMAT=json`, `LOG_LEVEL` | data-service | text, `INFO` |
+| `DATA_SERVICE_URL`, `POSTGRES_*` | backend | `http://localhost:8000`, `stockcharts` |
+| `LIVE_SYMBOLS`, `LIVE_MAX_SYMBOLS`, `LIVE_ENABLED` | backend | 5 large caps, `100`, `true` |
 | `BACKFILL_DAYS` | backend | `5` |
-| `stockcharts.screener.{max-universe,parallelism,result-limit}` | backend | `500, 8, 200` |
-| `POSTGRES_*` | backend | `stockcharts` / `localhost:5432` |
+| `ALERTS_INTERVAL`, `TELEGRAM_BOT_TOKEN`, `TELEGRAM_CHAT_ID`, `ALERTS_WEBHOOK_URL` | backend | `PT15S`, off |
+| `RATE_LIMIT_ENABLED`, `RATE_LIMIT_RPM`, `RATE_LIMIT_TRADING_RPM`, `RATE_LIMIT_HEAVY_RPM`, `RATE_LIMIT_TRUST_XFF` | backend | on, 600, 60, 30, `false` (`true` in compose/k8s) |
+| `CLUSTER_ENABLED`, `STOMP_RELAY_ENABLED`, `STOMP_RELAY_HOST/PORT/LOGIN/PASSCODE` | backend | off |
+| `SPRING_PROFILES_ACTIVE=json` (compose: `BACKEND_PROFILES`) | backend | text logs |
+| `stockcharts.screener.{max-universe,parallelism,result-limit}` | backend | 500, 8, 200 |
 | `VITE_API_TARGET` | frontend dev proxy | `http://localhost:8080` |
 
 ---
 
-## 7. Deployment
+## 7. Deployment and operations
 
-- **docker-compose**: `timescaledb` (host port 5433), `data-service` (8000), `backend` (8080)
-  and `frontend` (nginx, host port **3000**). The README says 8088, but the compose file maps
-  3000. Makefile shortcuts: `make up`, `up-zerodha`, `up-zerodha-trade`, `up-angelone`,
-  `down`, `logs`, `test`.
-- **Kubernetes** (`k8s/`): the Kustomize base has a Namespace, ConfigMaps and Secrets, a
-  TimescaleDB StatefulSet, Deployments and Services for the three apps, and an Ingress at
-  `stockcharts.local` (`/api` and `/ws` → backend, `/` → frontend). The `dev` overlay uses
-  mock data. The `prod` overlay patches the config to `zerodha` data and broker and injects
-  gitignored secret files (`enctoken.secret.yaml`, `broker.secret.yaml`).
-- **Tests**: backend JUnit tests (`IndicatorEngineTest`, `ExpressionServiceTest`, and a
-  `BackendIntegrationTest` that loads the full Spring context on H2 with a mocked data
-  service). The frontend check is `tsc --noEmit && vite build`.
+- **docker-compose**: `timescaledb` (host 5433), `data-service` (8000), `backend` (8080),
+  `frontend` (nginx, host **3000**). `make up`, `up-zerodha`, `up-zerodha-trade`, `up-angelone`.
+- **Kubernetes** (`k8s/`): base with Namespace, ConfigMaps/Secrets, TimescaleDB StatefulSet,
+  Deployments/Services for the three apps, Ingress (`stockcharts.local`), Prometheus scrape
+  annotations and the nightly **`db-backup` CronJob** (pg_dump to the `db-backups` PVC, 14 days).
+  `dev` overlay = mock data; `prod` overlay = Zerodha data and broker with gitignored secrets.
+- **Backups (compose)**: `make db-backup` / `make db-restore FILE=…` (`scripts/`); restores are
+  TimescaleDB-aware and stop the backend while running.
+- **Observability**: Prometheus metrics from both services (HTTP latency histograms, JVM,
+  `stockcharts_screener_duration`, `stockcharts_backtest_duration`, `stockcharts_alerts_triggered`,
+  `stockcharts_live_ticks`, `dataservice_*`), optional JSON logs.
+- **Scaling**: backend replicas are supported with cluster mode (ShedLock + STOMP broker relay +
+  live ingestion on one replica); the data service stays single-replica.
+- **CI** (`.github/workflows/ci.yml`): backend tests incl. migrations on TimescaleDB, data-service
+  ruff + pytest, frontend vitest + type-check/build + Playwright e2e (mocked API), Kustomize
+  rendering, Docker image builds.
 
 ---
 
-## 8. Observations and known gaps
+## 8. Known gaps
 
-These come from reading the code. They are useful context for anyone extending the app.
-
-1. **No authentication or authorization anywhere.** CORS and WebSocket origins are `*`, and
-   the trading and broker-credential endpoints are open. Before any real-money broker is
-   connected on a reachable host, the app needs auth, or at least network restrictions.
-2. **Broker credentials** are sent in plain JSON through `POST /broker` and kept only in the
-   data service's memory, so they are lost on restart.
-3. **Global mutable provider state** in the data service (module-level `provider` and
-   `trading_provider`) assumes a single replica. The backend's in-memory `TickAggregator`
-   and simple STOMP broker make the same assumption, so none of the services scale
-   horizontally as written.
-4. **Live streaming is limited** to the configured `LIVE_SYMBOLS` and aggregates only into
-   1m candles. Real-data "live" feeds are polling-based until KiteTicker or SmartWebSocket
-   is implemented.
-5. **The paper broker** fills at static seed prices, not live mock prices, and its state is
-   in memory only.
-6. **Doc drift**: the README mentions TA4J (not used) and frontend port 8088 (compose uses
-   3000). Its project-structure section also leaves out the trading module.
-7. **Groww** is a placeholder for both data and trading.
+1. **No authentication or authorization.** CORS and WebSocket origins are `*`; trading, broker
+   credentials, journal and alerts are open to anyone who can reach the backend. Rate limiting
+   reduces abuse but is not access control. Put the app behind auth or a private network before
+   connecting a real broker.
+2. **Broker credentials** travel in plain JSON on `POST /broker` and live only in the data
+   service's memory.
+3. **Market hours / IST**: charts render in UTC, the mock trades 24/7, and daily candles are not
+   aligned to the Indian trading session or holidays.
+4. **Paper broker realism**: fills at static seed prices (not the live mock price), no brokerage,
+   in-memory state.
+5. **Live data** from real providers is polled (KiteTicker / SmartWebSocket not wired); indicator
+   lines do not update live (only the price bars do).
+6. **Order safety**: no confirmation, quantity/value limits or kill switch for live brokers; no
+   bracket/cover/GTT orders.
+7. **Not yet built**: F&O and option chains, multi-chart layouts, Renko/range bars, walk-forward or
+   portfolio-level backtests, tax carry-forward of losses.
+8. **Groww** is a placeholder for both data and trading.
