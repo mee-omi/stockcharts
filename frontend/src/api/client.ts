@@ -1,6 +1,13 @@
 import axios from 'axios'
 import type {
+  Alert,
+  AlertEvent,
+  AlertRequest,
+  AlertStatus,
   ApplyResponse,
+  BacktestRequest,
+  BacktestResult,
+  Candle,
   CatalogEntry,
   CustomIndicator,
   DataSourceInfo,
@@ -8,6 +15,10 @@ import type {
   Holding,
   IndicatorSpec,
   Instrument,
+  JournalEntry,
+  ManualJournalEntry,
+  PortfolioReport,
+  Quote,
   ModifyOrderRequest,
   Order,
   PlaceOrderRequest,
@@ -17,6 +28,7 @@ import type {
   ScreenerResult,
   SetBrokerRequest,
   TradingBrokerInfo,
+  UniverseInfo,
   ValidationResult,
   Watchlist,
 } from './types'
@@ -44,13 +56,133 @@ export async function applyIndicators(
   symbol: string,
   timeframe: string,
   indicators: IndicatorSpec[],
+  range?: { from?: number; to?: number },
 ): Promise<ApplyResponse> {
   const { data } = await api.post<ApplyResponse>('/indicators/apply', {
     symbol,
     timeframe,
     indicators,
+    from: range?.from,
+    to: range?.to,
   })
   return data
+}
+
+/** Raw candles (epoch-ms range), used for the compare overlay. */
+export async function getCandles(
+  symbol: string,
+  timeframe: string,
+  range?: { from?: number; to?: number },
+): Promise<Candle[]> {
+  const { data } = await api.get<Candle[]>(`/candles/${encodeURIComponent(symbol)}`, {
+    params: { timeframe, from: range?.from, to: range?.to },
+  })
+  return data
+}
+
+// ---- quotes & universes ----
+export async function getQuotes(symbols: string[]): Promise<Quote[]> {
+  if (!symbols.length) return []
+  const { data } = await api.get<Quote[]>('/quotes', { params: { symbols: symbols.join(',') } })
+  return data
+}
+
+export async function listUniverses(): Promise<UniverseInfo[]> {
+  const { data } = await api.get<UniverseInfo[]>('/screener/universes')
+  return data
+}
+
+// ---- saved UI state (layout, drawings) ----
+export async function getUiState<T>(key: string): Promise<T | null> {
+  try {
+    const { data } = await api.get<T>(`/ui-state/${encodeURIComponent(key)}`)
+    return data
+  } catch (e: any) {
+    if (e?.response?.status === 404) return null
+    throw e
+  }
+}
+
+export async function putUiState<T>(key: string, value: T): Promise<void> {
+  await api.put(`/ui-state/${encodeURIComponent(key)}`, value)
+}
+
+// ---- alerts ----
+export async function listAlerts(): Promise<Alert[]> {
+  const { data } = await api.get<Alert[]>('/alerts')
+  return data
+}
+
+export async function createAlert(req: AlertRequest): Promise<Alert> {
+  const { data } = await api.post<Alert>('/alerts', req)
+  return data
+}
+
+export async function setAlertStatus(id: number, status: AlertStatus): Promise<Alert> {
+  const { data } = await api.post<Alert>(`/alerts/${id}/status`, { status })
+  return data
+}
+
+export async function deleteAlert(id: number): Promise<void> {
+  await api.delete(`/alerts/${id}`)
+}
+
+export async function listAlertEvents(limit = 50): Promise<AlertEvent[]> {
+  const { data } = await api.get<AlertEvent[]>('/alerts/events', { params: { limit } })
+  return data
+}
+
+// ---- backtest ----
+export async function runBacktest(req: BacktestRequest): Promise<BacktestResult> {
+  const { data } = await api.post<BacktestResult>('/backtest', req)
+  return data
+}
+
+// ---- journal & portfolio ----
+export async function listJournal(): Promise<JournalEntry[]> {
+  const { data } = await api.get<JournalEntry[]>('/journal')
+  return data
+}
+
+export async function addJournalEntry(entry: ManualJournalEntry): Promise<JournalEntry> {
+  const { data } = await api.post<JournalEntry>('/journal', entry)
+  return data
+}
+
+export async function annotateJournalEntry(
+  id: number,
+  a: { strategy?: string | null; notes?: string | null },
+): Promise<JournalEntry> {
+  const { data } = await api.put<JournalEntry>(`/journal/${id}`, a)
+  return data
+}
+
+export async function deleteJournalEntry(id: number): Promise<void> {
+  await api.delete(`/journal/${id}`)
+}
+
+export async function syncJournal(): Promise<number> {
+  const { data } = await api.post<{ added: number }>('/journal/sync')
+  return data.added
+}
+
+export async function getPortfolioReport(params: { from?: number; to?: number; broker?: string }): Promise<PortfolioReport> {
+  const { data } = await api.get<PortfolioReport>('/portfolio/report', { params })
+  return data
+}
+
+export function portfolioCsvUrl(params: { from?: number; to?: number; broker?: string }): string {
+  const q = new URLSearchParams()
+  Object.entries(params).forEach(([k, v]) => v !== undefined && v !== '' && q.set(k, String(v)))
+  const qs = q.toString()
+  return `/api/v1/portfolio/report.csv${qs ? `?${qs}` : ''}`
+}
+
+/** Pull the most useful message out of an API error (Spring {error}, FastAPI {detail}, or 429). */
+export function apiError(e: any, fallback: string): string {
+  const d = e?.response?.data
+  if (e?.response?.status === 429) return 'Rate limited — please wait a moment and retry'
+  return d?.error ?? d?.detail ?? d?.message ?? fallback
 }
 
 // ---- custom indicators ----

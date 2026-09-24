@@ -9,14 +9,20 @@ interface Option {
 }
 
 function toOption(i: Instrument): Option {
-  return { value: i.symbol, label: `${i.symbol} — ${i.name}`, instrument: i }
+  const tag = i.instrumentType === 'INDEX' ? ' · index' : i.exchange !== 'NSE' ? ` · ${i.exchange}` : ''
+  return { value: i.symbol, label: `${i.symbol} — ${i.name}${tag}`, instrument: i }
 }
 
 interface Props {
   onSelect: (symbol: string) => void
+  placeholder?: string
+  compact?: boolean
+  /** Clear the box after a pick (for "add symbol" style inputs). */
+  clearOnSelect?: boolean
+  ariaLabel?: string
 }
 
-export default function StockSearch({ onSelect }: Props) {
+export default function StockSearch({ onSelect, placeholder, compact, clearOnSelect, ariaLabel }: Props) {
   const loadOptions = async (input: string): Promise<Option[]> => {
     const list = await searchInstruments(input)
     return list.slice(0, 50).map(toOption)
@@ -27,15 +33,17 @@ export default function StockSearch({ onSelect }: Props) {
       cacheOptions
       defaultOptions
       loadOptions={loadOptions}
-      placeholder="Search NSE stocks (e.g. RELIANCE, Infosys)…"
+      placeholder={placeholder ?? 'Search symbol (e.g. RELIANCE, NIFTY50)…'}
+      aria-label={ariaLabel ?? 'Search symbols'}
       onChange={(opt) => opt && onSelect(opt.value)}
+      {...(clearOnSelect ? { value: null } : {})}
       classNamePrefix="stocksel"
       styles={{
         control: (base) => ({
           ...base,
           background: '#161b22',
           borderColor: '#30363d',
-          minHeight: 44,
+          minHeight: compact ? 34 : 44,
         }),
         menu: (base) => ({ ...base, background: '#161b22', zIndex: 50 }),
         input: (base) => ({ ...base, color: '#e6edf3' }),

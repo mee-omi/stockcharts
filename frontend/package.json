@@ -6,7 +6,9 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc --noEmit && vite build",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "test": "vitest run",
+    "e2e": "playwright test"
   },
   "dependencies": {
     "@stomp/stompjs": "^7.0.0",
@@ -26,6 +28,7 @@
     "playwright": "^1.61.1",
     "typescript": "^5.5.3",
     "vite": "^5.3.3",
-    "vite-plugin-pwa": "^0.20.0"
+    "vite-plugin-pwa": "^0.20.0",
+    "vitest": "^2.1.9"
   }
 }
