@@ -34,6 +34,10 @@ class MarketDataProvider(ABC):
     def stream_ticks(self, symbols: list[str]) -> AsyncIterator[Tick]:
         """Yield live ticks for the given symbols until the consumer disconnects."""
 
+    def status(self) -> dict:
+        """Live-feed / session health for the UI; providers with a broker session override it."""
+        return {}
+
     async def close(self) -> None:  # pragma: no cover - optional cleanup hook
         """Release any provider resources (sessions, sockets)."""
         return None

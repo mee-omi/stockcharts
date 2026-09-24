@@ -14,6 +14,7 @@ import type {
   CustomIndicator,
   DataSourceInfo,
   Funds,
+  HistorySyncInfo,
   Holding,
   IndicatorSpec,
   Instrument,
@@ -257,6 +258,16 @@ export async function getDataSource(): Promise<DataSourceInfo> {
 export async function setDataSource(provider: string, enctoken?: string): Promise<DataSourceInfo> {
   const { data } = await api.post<DataSourceInfo>('/datasource', { provider, enctoken })
   return data
+}
+
+// ---- history sync ----
+export async function getHistorySync(): Promise<HistorySyncInfo> {
+  const { data } = await api.get<HistorySyncInfo>('/history-sync')
+  return data
+}
+
+export async function runHistorySync(): Promise<void> {
+  await api.post('/history-sync/run', undefined, { validateStatus: (s) => s === 202 || s === 409 })
 }
 
 // ---- trading broker ----

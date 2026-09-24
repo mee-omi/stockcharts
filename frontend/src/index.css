@@ -651,3 +651,9 @@ html, body, #root {
 .sig.in_position { background: #58a6ff22; color: #58a6ff; }
 .sig.none { color: var(--muted); }
 .scan-table td.sym .small { font-weight: 400; }
+
+/* Data source dialog: feed health + history sync */
+.ds-health { margin-top: 6px; font-size: 13px; color: var(--muted); text-transform: none; display: flex; flex-wrap: wrap; align-items: center; gap: 4px; }
+.ds-health .err { flex-basis: 100%; }
+.ds-sync { margin-top: 14px; border: 1px solid var(--border); border-radius: 8px; padding: 10px; display: flex; flex-direction: column; gap: 4px; }
+.ds-sync-head { display: flex; justify-content: space-between; align-items: center; }

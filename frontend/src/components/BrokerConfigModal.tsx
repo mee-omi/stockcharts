@@ -39,6 +39,7 @@ export default function BrokerConfigModal({ onClose, onSwitched }: Props) {
   // Angel One fields
   const [clientId, setClientId] = useState('')
   const [totpSecret, setTotpSecret] = useState('')
+  const [pin, setPin] = useState('')
   const [status, setStatus] = useState<{ ok: boolean; msg: string } | null>(null)
   const [busy, setBusy] = useState(false)
 
@@ -60,6 +61,7 @@ export default function BrokerConfigModal({ onClose, onSwitched }: Props) {
         req.apiKey = apiKey
         req.clientId = clientId
         req.totpSecret = totpSecret
+        req.pin = pin
       }
       const updated = await setTradingBroker(req as any)
       setInfo(updated)
@@ -74,7 +76,7 @@ export default function BrokerConfigModal({ onClose, onSwitched }: Props) {
 
   const canApply = () => {
     if (selected === 'zerodha') return apiKey.trim() && accessToken.trim()
-    if (selected === 'angelone') return apiKey.trim() && clientId.trim() && totpSecret.trim()
+    if (selected === 'angelone') return apiKey.trim() && clientId.trim() && pin.trim() && totpSecret.trim()
     return true
   }
 
@@ -161,6 +163,16 @@ export default function BrokerConfigModal({ onClose, onSwitched }: Props) {
                 placeholder="Angel One login ID"
                 value={clientId}
                 onChange={(e) => setClientId(e.target.value)}
+              />
+            </div>
+            <div className="cred-row">
+              <label>MPIN</label>
+              <input
+                type="password"
+                inputMode="numeric"
+                placeholder="Angel One account MPIN"
+                value={pin}
+                onChange={(e) => setPin(e.target.value)}
               />
             </div>
             <div className="cred-row">

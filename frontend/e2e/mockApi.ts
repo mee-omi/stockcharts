@@ -60,7 +60,12 @@ export async function mockApi(page: Page, init: Partial<MockState> = {}): Promis
       return json({ symbol: body.symbol, timeframe: body.timeframe, candles: candles(150, STEP[body.timeframe] ?? 60), indicators: [] })
     }
     if (path.startsWith('/candles/')) return json(candles(150, STEP[url.searchParams.get('timeframe') ?? '1m'], 24000))
-    if (path === '/datasource') return json({ active: 'mock', available: ['mock', 'zerodha'] })
+    if (path === '/datasource') return json({ active: 'mock', available: ['mock', 'zerodha'], status: {} })
+    if (path === '/history-sync') {
+      return json({ status: { running: false, startedAt: null, finishedAt: null, trigger: null, provider: null, symbols: 0,
+        done: 0, candlesStored: 0, failures: 0, failureSamples: [], skippedReason: null }, trackedSymbols: 3,
+        lookbackDays: { '1d': 1825, '1m': 30 } })
+    }
     if (path === '/broker') return json({ active: 'mock', available: ['mock', 'zerodha'] })
     if (path === '/screener/universes') return json([{ code: 'NIFTY50', label: 'NIFTY 50', size: 50 }])
     if (path.startsWith('/ui-state/')) {

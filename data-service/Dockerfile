@@ -11,7 +11,7 @@ RUN pip install -r requirements.txt
 
 # Optional broker packs — pass build-args to activate:
 #   --build-arg ZERODHA=1        (market data via PyZData/enctoken)
-#   --build-arg ZERODHA_TRADE=1  (trading via kiteconnect, paid API key)
+#   --build-arg ZERODHA_TRADE=1  (Kite Connect: trading + kiteticker history/websocket, paid API key)
 #   --build-arg ANGELONE=1       (market data + trading via SmartAPI)
 ARG ZERODHA=0
 ARG ZERODHA_TRADE=0

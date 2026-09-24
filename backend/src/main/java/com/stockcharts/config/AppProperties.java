@@ -19,6 +19,83 @@ public class AppProperties {
     private final Alerts alerts = new Alerts();
     private final RateLimit rateLimit = new RateLimit();
     private final Cluster cluster = new Cluster();
+    private final HistorySync historySync = new HistorySync();
+    /** Max wait for a data-service response; chunked multi-year broker downloads can be slow. */
+    private java.time.Duration dataServiceTimeout = java.time.Duration.ofMinutes(3);
+
+    /** Periodic download of broker history into the local candle store. */
+    public static class HistorySync {
+        private boolean enabled = true;
+        /** Run shortly after startup (after the instrument sync). */
+        private boolean onStartup = true;
+        /** Also sync when the mock provider is active (it generates data on demand anyway). */
+        private boolean includeMock = false;
+        /** Timeframe:lookback-days pairs, e.g. "1d:1825,1m:30". */
+        private String timeframes = "1d:1825,15m:120,1m:30";
+        /** Index universes whose constituents are always synced (watchlists are always included). */
+        private List<String> indices = List.of("NIFTY50");
+        private int maxSymbols = 300;
+
+        public boolean isEnabled() {
+            return enabled;
+        }
+
+        public void setEnabled(boolean enabled) {
+            this.enabled = enabled;
+        }
+
+        public boolean isOnStartup() {
+            return onStartup;
+        }
+
+        public void setOnStartup(boolean onStartup) {
+            this.onStartup = onStartup;
+        }
+
+        public boolean isIncludeMock() {
+            return includeMock;
+        }
+
+        public void setIncludeMock(boolean includeMock) {
+            this.includeMock = includeMock;
+        }
+
+        public String getTimeframes() {
+            return timeframes;
+        }
+
+        public void setTimeframes(String timeframes) {
+            this.timeframes = timeframes;
+        }
+
+        public List<String> getIndices() {
+            return indices;
+        }
+
+        public void setIndices(List<String> indices) {
+            this.indices = indices;
+        }
+
+        public int getMaxSymbols() {
+            return maxSymbols;
+        }
+
+        public void setMaxSymbols(int maxSymbols) {
+            this.maxSymbols = maxSymbols;
+        }
+    }
+
+    public HistorySync getHistorySync() {
+        return historySync;
+    }
+
+    public java.time.Duration getDataServiceTimeout() {
+        return dataServiceTimeout;
+    }
+
+    public void setDataServiceTimeout(java.time.Duration dataServiceTimeout) {
+        this.dataServiceTimeout = dataServiceTimeout;
+    }
 
     /** Alert evaluation and notification channels. */
     public static class Alerts {

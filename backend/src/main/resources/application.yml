@@ -29,6 +29,20 @@ stockcharts:
   live-symbols: ${LIVE_SYMBOLS:RELIANCE,TCS,HDFCBANK,INFY,ICICIBANK}
   # Auto-backfill this many days of 1m history on first request for a symbol.
   backfill-days: ${BACKFILL_DAYS:5}
+  # Max wait for data-service responses (chunked broker history downloads can take minutes).
+  data-service-timeout: ${DATA_SERVICE_TIMEOUT:PT3M}
+  # Periodic download of broker history into the candle store (incremental).
+  history-sync:
+    enabled: ${HISTORY_SYNC_ENABLED:true}
+    on-startup: ${HISTORY_SYNC_ON_STARTUP:true}
+    # After the NSE close on weekdays (IST).
+    cron: ${HISTORY_SYNC_CRON:0 45 15 * * MON-FRI}
+    # timeframe:lookback-days
+    timeframes: ${HISTORY_SYNC_TIMEFRAMES:1d:1825,15m:120,1m:30}
+    # Index universes always synced; watchlist symbols are always included.
+    indices: ${HISTORY_SYNC_INDICES:NIFTY50}
+    max-symbols: ${HISTORY_SYNC_MAX_SYMBOLS:300}
+    include-mock: ${HISTORY_SYNC_INCLUDE_MOCK:false}
   # Live ingestion on this instance; symbols clients subscribe to are added up to the cap.
   live-enabled: ${LIVE_ENABLED:true}
   live-max-symbols: ${LIVE_MAX_SYMBOLS:100}

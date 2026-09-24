@@ -90,7 +90,7 @@ Copy `.env.example` to `.env`. Key settings:
 
 | Variable | Default | Meaning |
 |---|---|---|
-| `MARKET_DATA_PROVIDER` | `mock` | `mock` (synthetic) or `zerodha` (real, needs `ENCTOKEN`) |
+| `MARKET_DATA_PROVIDER` | `mock` | `mock`, `kiteticker`, `angelone` or `zerodha` — see below |
 | `ENCTOKEN` | _(empty)_ | Zerodha enctoken — required only for the `zerodha` provider |
 | `DATA_SERVICE_URL` | `http://localhost:8000` | Where the backend reaches the data service |
 | `POSTGRES_*` | `stockcharts` | DB host/port/name/user/password |
@@ -101,16 +101,31 @@ Copy `.env.example` to `.env`. Key settings:
 | `RATE_LIMIT_RPM` / `_TRADING_RPM` / `_HEAVY_RPM` | 600 / 60 / 30 | Per-client limits per minute (general / orders / screener+backtest) |
 | `BACKEND_PROFILES=json`, `LOG_FORMAT=json` | _(empty)_ | Structured JSON logs (backend / data service) |
 
-### Using real Zerodha data
+### Using real broker data (Zerodha or Angel One)
 
-1. Log in to https://kite.zerodha.com → DevTools → Application → Cookies → copy the `enctoken`.
-2. Set `MARKET_DATA_PROVIDER=zerodha` and `ENCTOKEN=<token>` (the token refreshes on each login).
-3. Install the optional dependency: `pip install -r data-service/requirements-zerodha.txt`
-   (the Docker image: build with `--build-arg ZERODHA=1`).
+Pick a provider in the UI (*source* button) or with `MARKET_DATA_PROVIDER`:
 
-The `zerodha` provider serves historical/intraday candles directly and emulates a live feed by
-polling the latest 1-minute candle. For a true continuous tick stream, implement the
-`kiteticker` provider (a stub is already wired) with a paid Kite Connect subscription.
+| Provider | History | Live | Credentials |
+|---|---|---|---|
+| `kiteticker` — Zerodha **Kite Connect** (recommended for Zerodha) | Official historical API | **KiteTicker websocket** | `ZERODHA_API_KEY` + today's `ZERODHA_ACCESS_TOKEN` (Kite Connect subscription; the token expires every morning) |
+| `angelone` — Angel One **SmartAPI** | `getCandleData` | **SmartWebSocket V2** | `ANGELONE_API_KEY`, `ANGELONE_CLIENT_ID`, `ANGELONE_PIN` (MPIN), `ANGELONE_TOTP_SECRET` — the session renews itself daily |
+| `zerodha` — Zerodha **enctoken** (no subscription) | PyZData | Polls the latest 1-minute bar every 5 s | `ENCTOKEN` from kite.zerodha.com cookies (expires daily) |
+
+Install the extras: `pip install -r data-service/requirements-zerodha-trade.txt` (Kite Connect),
+`-r requirements-angelone.txt` (Angel One) or `-r requirements-zerodha.txt` (enctoken); for Docker
+build the data service with `--build-arg ZERODHA_TRADE=1`, `ANGELONE=1` or `ZERODHA=1`.
+
+How data flows with a real broker:
+- **History** is requested in windows sized to each broker's per-request limit (e.g. 60 days of
+  1-minute bars on Kite, 30 on Angel One) and paced under their rate limits, in IST.
+- **Scheduled sync:** at startup and every weekday at 15:45 IST the backend downloads history for
+  watchlist symbols and the `HISTORY_SYNC_INDICES` universes (`HISTORY_SYNC_TIMEFRAMES`, default
+  5 years daily, 120 days 15-minute, 30 days 1-minute) — incrementally, only what's missing. Status
+  and a *Sync now* button are in the data-source dialog (`GET /history-sync`, `POST /history-sync/run`).
+- **Live:** the websocket connects only while someone is watching and the NSE session is open
+  (09:15–15:30 IST on trading days — list holidays in `NSE_HOLIDAYS`), reconnects on drops, and
+  feeds the live 1-minute candles. The dialog shows whether the feed is connected, the last tick
+  and any error (e.g. an expired token).
 
 ## REST API
 
@@ -133,6 +148,7 @@ Base path `/api/v1` (full schema at `/swagger-ui.html`):
 | GET/POST/PUT/DELETE | `/alerts`, `/alerts/{id}/status`, `/alerts/events` | Alerts and trigger history; WS topic `/topic/alerts` |
 | POST | `/backtest` | Run a rule-based backtest (entry/exit expressions, stop/target, costs) |
 | POST | `/backtest/scan` | Backtest a strategy across a universe; rank, filter, latest-bar signals |
+| GET/POST | `/history-sync`, `/history-sync/run` | Scheduled broker-history download: status / run now |
 | GET/POST/PUT/DELETE | `/journal`, `/journal/sync` | Trade journal (filled orders are recorded automatically) |
 | GET | `/portfolio/report`, `/portfolio/report.csv` | Realised P&L (FIFO), charges, STCG/LTCG/intraday, tax estimate |
 | GET/PUT/DELETE | `/ui-state/{key}` | Saved chart layout and per-symbol drawings |

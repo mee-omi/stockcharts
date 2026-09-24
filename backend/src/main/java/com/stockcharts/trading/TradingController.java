@@ -52,6 +52,7 @@ public class TradingController {
             String apiKey,
             String accessToken,
             String clientId,
+            String pin,
             String totpSecret
     ) {}
 
@@ -68,6 +69,7 @@ public class TradingController {
         if (req.apiKey() != null && !req.apiKey().isBlank())         creds.put("api_key",       req.apiKey());
         if (req.accessToken() != null && !req.accessToken().isBlank()) creds.put("access_token",  req.accessToken());
         if (req.clientId() != null && !req.clientId().isBlank())     creds.put("client_id",      req.clientId());
+        if (req.pin() != null && !req.pin().isBlank())               creds.put("pin",            req.pin());
         if (req.totpSecret() != null && !req.totpSecret().isBlank()) creds.put("totp_secret",    req.totpSecret());
         return trading.setBroker(req.broker(), creds);
     }

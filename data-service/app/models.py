@@ -29,4 +29,9 @@ class Tick(BaseModel):
     symbol: str
     ltp: float            # last traded price
     timestamp: int        # epoch milliseconds (UTC)
+    # Volume traded since the previous tick (mock feed). Real feeds leave it 0 and send day_volume.
     volume: float = 0.0
+    # Cumulative volume for the day from exchange feeds; the consumer derives increments from it.
+    day_volume: float | None = None
+    # Polling providers send the whole current 1-minute bar; the consumer replaces its bar with it.
+    bar: Candle | None = None

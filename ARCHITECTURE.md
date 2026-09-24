@@ -143,14 +143,32 @@ through configuration, or at runtime from the UI.
 ### 2.10 Market data
 | Provider | Historical | Live |
 |---|---|---|
-| `mock` (default) | ~75 NSE stocks + 8 NSE/BSE indices. Price is a deterministic function of time (drift + multi-period cycles + hashed noise), so every timeframe agrees and restarts reproduce the same data | Ticks sample the same curve |
-| `zerodha` | PyZData with an enctoken; indices flagged from the `INDICES` segment | Polls the latest 1m candle |
-| `kiteticker` | Delegates to `zerodha` | Stub |
-| `angelone` | SmartAPI candles | Polling |
+| `mock` (default) | ~75 NSE stocks + 8 NSE/BSE indices. Price is a deterministic function of time, so every timeframe agrees and restarts reproduce the same data | Ticks sample the same curve (24/7) |
+| `kiteticker` (Zerodha Kite Connect) | `historical_data` in ≤ Kite-limit windows (60 d for 1m … 2000 d for 1d), paced < 3 req/s, IST | KiteTicker websocket (FULL mode), day volume |
+| `angelone` (SmartAPI) | Instrument master for symbol↔token; `getCandleData` in ≤ SmartAPI-limit windows (30 d for 1m …), IST; auto re-login daily and on token errors | SmartWebSocket V2 (QUOTE mode; paise → rupees), day volume |
+| `zerodha` (enctoken) | PyZData (its own windowing and pacing); naive-IST timestamps converted | Polls the latest 1m bar and sends the whole bar |
 | `groww` | Mock fallback | Mock fallback |
 
-Instruments carry `instrument_type` (`EQ` or `INDEX`). Switching the source re-syncs instruments,
-forgets client-requested live symbols and restarts the backend's live stream.
+Real-broker feeds are supervised by `BrokerFeed` (`providers/common.py`): connected only while a
+subscriber wants symbols and — with `LIVE_MARKET_HOURS_ONLY` — during the NSE session
+(`app/market.py`: 09:15–15:30 IST on weekdays except `NSE_HOLIDAYS`); SDK callbacks run on their
+own threads and hand ticks to asyncio through `TickHub`. The SSE endpoint sends keepalives while
+the market is closed. `GET /api/provider` reports the feed's status (connected, market open, last
+tick, last error).
+
+Ticks now carry either `day_volume` (websocket feeds) or a whole `bar` (polling); the backend's
+`TickAggregator` derives per-minute volume from day volume, replaces its bar with polled
+snapshots, and continues a stored bar when the stream (re)connects mid-minute.
+
+**History sync** (`HistorySyncService`): at startup and on `stockcharts.history-sync.cron`
+(15:45 IST Mon–Fri) it walks watchlist symbols + configured index universes + live symbols and,
+per configured timeframe, downloads only the missing head of the lookback and the tail since the
+newest stored bar. Read paths are incremental too (`CandleService`): tail/head gaps only, with
+throttled retries so chart reloads don't hammer broker APIs.
+
+Instruments carry `instrument_type` (`EQ` or `INDEX`); broker index names are normalised without
+spaces (`NIFTY 50` → `NIFTY50`). Switching the source re-syncs instruments, forgets
+client-requested live symbols and restarts the backend's live stream.
 
 ### 2.11 Bar replay, PWA and mobile
 - **Replay** hides future bars and reveals them one at a time or at 1–10 bars/s; indicators,
@@ -358,6 +376,7 @@ filters by close date and broker.
 | Data source | `GET/POST /datasource` |
 | Trading | `GET/POST /broker`, `GET/POST /trading/orders`, `PUT/DELETE /trading/orders/{id}`, `GET /trading/positions`, `/holdings`, `/funds` |
 | WebSocket | `/ws` (STOMP, SockJS or raw) → `/topic/ticks/{SYMBOL}`, `/topic/alerts` |
+| History sync | `GET /history-sync`, `POST /history-sync/run` |
 | Ops | `/swagger-ui.html`, `/actuator/health`, `/actuator/metrics`, `/actuator/prometheus` |
 
 Data-service internal API: `/health`, `/metrics`, `/api/provider`, `/api/instruments`,
@@ -371,6 +390,11 @@ Data-service internal API: `/health`, `/metrics`, `/api/provider`, `/api/instrum
 |---|---|---|
 | `MARKET_DATA_PROVIDER`, `ENCTOKEN`, `TICK_INTERVAL_SECONDS`, `ZERODHA_POLL_SECONDS` | data-service | `mock`, —, `1.0`, `5.0` |
 | `TRADING_BROKER` + broker credentials | data-service | `mock` |
+| `ZERODHA_API_KEY`, `ZERODHA_ACCESS_TOKEN` / `ANGELONE_API_KEY`, `_CLIENT_ID`, `_PIN`, `_TOTP_SECRET` | data-service | broker credentials (market data + trading) |
+| `LIVE_MARKET_HOURS_ONLY`, `NSE_HOLIDAYS` | data-service | `true`, none |
+| `KITE_HISTORY_RPS`, `ANGELONE_HISTORY_RPS` | data-service | `2.5`, `2.5` |
+| `HISTORY_SYNC_ENABLED`, `HISTORY_SYNC_CRON`, `HISTORY_SYNC_TIMEFRAMES`, `HISTORY_SYNC_INDICES` | backend | on, `0 45 15 * * MON-FRI` (IST), `1d:1825,15m:120,1m:30`, `NIFTY50` |
+| `DATA_SERVICE_TIMEOUT` | backend | `PT3M` |
 | `LOG_FORMAT=json`, `LOG_LEVEL` | data-service | text, `INFO` |
 | `DATA_SERVICE_URL`, `POSTGRES_*` | backend | `http://localhost:8000`, `stockcharts` |
 | `LIVE_SYMBOLS`, `LIVE_MAX_SYMBOLS`, `LIVE_ENABLED` | backend | 5 large caps, `100`, `true` |
@@ -417,7 +441,9 @@ Data-service internal API: `/health`, `/metrics`, `/api/provider`, `/api/instrum
    aligned to the Indian trading session or holidays.
 4. **Paper broker realism**: fills at static seed prices (not the live mock price), no brokerage,
    in-memory state.
-5. **Live data** from real providers is polled (KiteTicker / SmartWebSocket not wired); indicator
+5. **Live data:** KiteTicker and SmartWebSocket V2 are implemented against the SDKs but untested
+   against live accounts here; Zerodha access tokens / enctokens still need a manual daily
+   refresh (Kite's login flow requires a person); indicator
    lines do not update live (only the price bars do).
 6. **Order safety**: no confirmation, quantity/value limits or kill switch for live brokers; no
    bracket/cover/GTT orders.

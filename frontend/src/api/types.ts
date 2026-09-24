@@ -74,9 +74,38 @@ export interface Watchlist {
   symbols: string[]
 }
 
+export interface ProviderStatus {
+  feed?: string
+  connected?: boolean
+  subscribed?: number
+  market_open?: boolean
+  market_hours_only?: boolean
+  last_tick_ms?: number | null
+  last_error?: string | null
+}
+
 export interface DataSourceInfo {
   active: string
   available: string[]
+  status?: ProviderStatus | null
+}
+
+export interface HistorySyncInfo {
+  status: {
+    running: boolean
+    startedAt: string | null
+    finishedAt: string | null
+    trigger: string | null
+    provider: string | null
+    symbols: number
+    done: number
+    candlesStored: number
+    failures: number
+    failureSamples: string[]
+    skippedReason: string | null
+  }
+  trackedSymbols: number
+  lookbackDays: Record<string, number>
 }
 
 export type UniverseType = 'index' | 'list' | 'watchlist' | 'all'
@@ -229,6 +258,7 @@ export interface SetBrokerRequest {
   apiKey?: string
   accessToken?: string
   clientId?: string
+  pin?: string
   totpSecret?: string
 }
 
