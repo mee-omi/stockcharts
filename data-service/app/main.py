@@ -10,18 +10,18 @@ The Spring Boot backend consumes these endpoints — the frontend never talks he
 """
 from __future__ import annotations
 
-import json
 import logging
-import time
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, HTTPException, Query, Request
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
+from app import metrics
 from app.config import settings
 from app.providers import AVAILABLE_PROVIDERS, build_provider
 from app.providers.base import INTERVALS
+from app.sse import sse_events
 from app.trading import AVAILABLE_BROKERS, build_trading_provider
 from app.trading.models import (
     Funds,
@@ -32,6 +32,7 @@ from app.trading.models import (
     Positions,
 )
 
+metrics.configure_logging()
 logger = logging.getLogger(__name__)
 
 provider = None        # MarketDataProvider — set on startup
@@ -49,6 +50,7 @@ async def set_active_provider(name: str, enctoken: str | None) -> None:
     old = provider
     provider = new_provider
     settings.market_data_provider = new_provider.name
+    metrics.set_active(provider.name, trading_provider.name if trading_provider else None)
     if enctoken is not None:
         settings.enctoken = enctoken
     if old is not None and old is not new_provider:
@@ -65,6 +67,7 @@ async def set_active_broker(name: str, **credentials: str) -> None:
     old = trading_provider
     trading_provider = new_broker
     settings.trading_broker = new_broker.name
+    metrics.set_active(provider.name if provider else None, new_broker.name)
     if old is not None and old is not new_broker:
         try:
             await old.close()
@@ -86,6 +89,7 @@ async def lifespan(app: FastAPI):
         logger.warning("Trading provider init failed (%s); falling back to mock.", exc)
         from app.trading.mock import MockTradingProvider
         trading_provider = MockTradingProvider()
+    metrics.set_active(provider.name, trading_provider.name)
     yield
     if provider is not None:
         await provider.close()
@@ -99,6 +103,7 @@ app = FastAPI(
     description="Multi-broker NSE market-data and trading service with pluggable providers.",
     lifespan=lifespan,
 )
+metrics.install(app)
 
 
 # ---------------------------------------------------------------------------
@@ -123,9 +128,19 @@ class SetProviderRequest(BaseModel):
     enctoken: str | None = None
 
 
+def _provider_info() -> dict:
+    status = {}
+    if provider is not None:
+        try:
+            status = provider.status()
+        except Exception as exc:  # noqa: BLE001 - status must never break the endpoint
+            status = {"last_error": str(exc)}
+    return {"active": provider.name if provider else None, "available": AVAILABLE_PROVIDERS, "status": status}
+
+
 @app.get("/api/provider")
 async def get_provider() -> dict:
-    return {"active": provider.name if provider else None, "available": AVAILABLE_PROVIDERS}
+    return _provider_info()
 
 
 @app.post("/api/provider")
@@ -138,7 +153,7 @@ async def post_provider(req: SetProviderRequest) -> dict:
         raise HTTPException(400, f"Required package not installed: {e}")
     except Exception as e:  # noqa: BLE001
         raise HTTPException(400, f"Failed to switch provider: {e}")
-    return {"active": provider.name, "available": AVAILABLE_PROVIDERS}
+    return _provider_info()
 
 
 # ---------------------------------------------------------------------------
@@ -176,15 +191,13 @@ async def stream_ticks(
         raise HTTPException(400, "At least one symbol is required")
 
     async def event_gen():
-        yield ": connected\n\n"
-        last_ping = time.time()
-        async for tick in provider.stream_ticks(syms):
-            if await request.is_disconnected():
-                break
-            yield f"data: {json.dumps(tick.model_dump())}\n\n"
-            if time.time() - last_ping > 15:
-                yield ": ping\n\n"
-                last_ping = time.time()
+        metrics.SSE_CLIENTS.inc()
+        try:
+            async for chunk in sse_events(provider.stream_ticks(syms), request.is_disconnected,
+                                          on_event=metrics.TICKS.inc):
+                yield chunk
+        finally:
+            metrics.SSE_CLIENTS.dec()
 
     return StreamingResponse(
         event_gen(),
@@ -204,6 +217,7 @@ class SetBrokerRequest(BaseModel):
     access_token: str | None = None
     # Angel One SmartAPI
     client_id: str | None = None
+    pin: str | None = None
     totp_secret: str | None = None
 
 

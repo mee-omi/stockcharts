@@ -9,6 +9,10 @@ spec:
   template:
     metadata:
       labels: { app: backend }
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/path: /actuator/prometheus
+        prometheus.io/port: "8080"
     spec:
       containers:
         - name: backend
@@ -19,6 +23,16 @@ spec:
             - name: POSTGRES_PASSWORD
               valueFrom:
                 secretKeyRef: { name: app-secret, key: POSTGRES_PASSWORD }
+            # Optional alert channels (only these keys — broker credentials stay with the data service).
+            - name: TELEGRAM_BOT_TOKEN
+              valueFrom:
+                secretKeyRef: { name: app-secret, key: TELEGRAM_BOT_TOKEN, optional: true }
+            - name: TELEGRAM_CHAT_ID
+              valueFrom:
+                secretKeyRef: { name: app-secret, key: TELEGRAM_CHAT_ID, optional: true }
+            - name: ALERTS_WEBHOOK_URL
+              valueFrom:
+                secretKeyRef: { name: app-secret, key: ALERTS_WEBHOOK_URL, optional: true }
           envFrom:
             - configMapRef: { name: app-config }
           readinessProbe:

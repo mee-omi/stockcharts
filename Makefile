@@ -2,7 +2,7 @@
 IMAGE_PREFIX ?= stockcharts
 TAG          ?= latest
 
-.PHONY: help build up down logs ps test \
+.PHONY: help build up down logs ps test test-backend test-data test-frontend e2e db-backup db-restore \
         docker-backend docker-data docker-frontend \
         kind-load k8s-deploy k8s-deploy-prod k8s-delete k8s-status clean
 
@@ -15,7 +15,10 @@ help:
 	@echo "  make down             - stop the local stack"
 	@echo "  make logs             - tail local stack logs"
 	@echo "  make build            - build all three Docker images ($(IMAGE_PREFIX)/*:$(TAG))"
-	@echo "  make test             - run backend unit tests + frontend build"
+	@echo "  make test             - backend, data-service and frontend tests + frontend build"
+	@echo "  make e2e              - frontend end-to-end tests (Playwright, mocked API)"
+	@echo "  make db-backup        - dump the compose database to backups/ (KEEP=14 newest kept)"
+	@echo "  make db-restore FILE=backups/<dump>  - restore a dump into the compose database"
 	@echo "  make kind-load        - load images into a local kind cluster"
 	@echo "  make k8s-deploy       - apply the dev overlay (mock data) to the cluster"
 	@echo "  make k8s-deploy-prod  - apply the prod overlay (real Zerodha enctoken)"
@@ -68,9 +71,29 @@ docker-frontend:
 build: docker-data docker-backend docker-frontend
 
 # ---- tests ----
-test:
-	cd backend && ./mvnw -q test
-	cd frontend && npm ci && npm run build
+test: test-backend test-data test-frontend
+
+test-backend:
+	cd backend && ./mvnw -q -B test
+
+# Needs: pip install -r data-service/requirements-dev.txt
+test-data:
+	cd data-service && ruff check app tests && python -m pytest -q
+
+test-frontend:
+	cd frontend && npm ci && npm test && npm run build
+
+# Needs a Playwright Chromium (npx playwright install chromium) or PW_CHROMIUM_PATH.
+e2e:
+	cd frontend && npx playwright test
+
+# ---- database backups (docker compose stack) ----
+db-backup:
+	scripts/backup-db.sh
+
+db-restore:
+	@test -n "$(FILE)" || (echo "usage: make db-restore FILE=backups/<dump>"; exit 1)
+	scripts/restore-db.sh "$(FILE)"
 
 # ---- kubernetes ----
 kind-load: build

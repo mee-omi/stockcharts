@@ -62,15 +62,15 @@ def _map_smart_status(s: str) -> OrderStatus:
 class AngelOneTradingProvider(TradingProvider):
     name = "angelone"
 
-    def __init__(self, api_key: str, client_id: str, totp_secret: str) -> None:
-        if not api_key or not client_id or not totp_secret:
+    def __init__(self, api_key: str, client_id: str, totp_secret: str, pin: str = "") -> None:
+        if not api_key or not client_id or not totp_secret or not pin:
             raise ValueError(
-                "ANGELONE_API_KEY, ANGELONE_CLIENT_ID, and ANGELONE_TOTP_SECRET "
+                "ANGELONE_API_KEY, ANGELONE_CLIENT_ID, ANGELONE_PIN and ANGELONE_TOTP_SECRET "
                 "are all required for the Angel One trading provider."
             )
         try:
+            import pyotp  # noqa: F401 — imported to fail fast when the TOTP dependency is missing
             from SmartApi import SmartConnect  # type: ignore
-            import pyotp
         except ImportError as exc:
             raise ImportError(
                 "smartapi-python and pyotp are not installed. "
@@ -81,7 +81,8 @@ class AngelOneTradingProvider(TradingProvider):
 
         totp = _pyotp.TOTP(totp_secret).now()
         self._smart = SmartConnect(api_key=api_key)
-        session_data = self._smart.generateSession(client_id, totp=totp)
+        # SmartAPI login = client id + account MPIN + current TOTP.
+        session_data = self._smart.generateSession(client_id, pin, totp)
         if not session_data.get("data"):
             raise ValueError(f"Angel One session failed: {session_data.get('message', 'unknown error')}")
         self._symbol_token_cache: dict[str, str] = {}

@@ -519,3 +519,141 @@ html, body, #root {
 .cred-row label { font-size: 12px; color: var(--muted); }
 .cred-row input { background: #0e1117; color: var(--text); border: 1px solid var(--border); border-radius: 6px; padding: 8px; }
 
+
+/* =========================================================================
+   Shared page / card / form primitives (Backtest, Alerts, Portfolio)
+   ========================================================================= */
+.content.scroll { overflow-y: auto; display: block; }
+.page { max-width: 1180px; margin: 0 auto; padding: 14px; display: flex; flex-direction: column; gap: 14px; }
+.card { background: var(--panel); border: 1px solid var(--border); border-radius: 10px; padding: 14px; min-width: 0; }
+.card h3 { margin: 0 0 12px; font-size: 16px; }
+.card-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; margin-bottom: 12px; }
+.card-head h3 { margin: 0; }
+.two-col { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+.form-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(170px, 1fr)); gap: 10px 12px; }
+.form-grid label { display: flex; flex-direction: column; gap: 4px; font-size: 12px; color: var(--muted); min-width: 0; }
+.form-grid .span-2 { grid-column: span 2; }
+.form-grid input, .form-grid select {
+  background: #0e1117; color: var(--text); border: 1px solid var(--border); border-radius: 6px; padding: 8px 10px;
+  font-size: 14px; min-width: 0;
+}
+.form-actions { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin-top: 12px; }
+.expr-preview { background: #0e1117; border: 1px solid var(--border); border-radius: 6px; padding: 6px 10px; font-size: 12px; max-width: 100%; overflow-x: auto; }
+.run-btn.secondary { background: #21262d; color: var(--text); border: 1px solid var(--border); text-decoration: none; display: inline-block; font-size: 14px; }
+.ok { color: #26a69a; } .err { color: #ef5350; }
+.pos { color: #26a69a; } .neg { color: #ef5350; }
+.small { font-size: 12px; }
+.table-wrap { overflow-x: auto; }
+.results-table code { font-size: 12px; color: var(--muted); }
+.row-actions { white-space: nowrap; display: flex; gap: 6px; }
+.row-actions button, .wl-new button {
+  background: #21262d; color: var(--text); border: 1px solid var(--border); border-radius: 6px; padding: 5px 10px; cursor: pointer;
+}
+.link-btn { background: none; border: none; color: #58a6ff; cursor: pointer; padding: 0; font: inherit; }
+.icon-btn { background: none; border: none; color: var(--muted); cursor: pointer; padding: 2px 6px; font-size: 13px; }
+.icon-btn:hover { color: var(--text); }
+.inline-input { background: transparent; color: var(--text); border: 1px solid transparent; border-radius: 4px; padding: 3px 6px; width: 110px; }
+.inline-input.wide { width: 200px; }
+.inline-input:hover, .inline-input:focus { border-color: var(--border); background: #0e1117; }
+.page-tabs { border-radius: 8px; }
+.assumptions summary { cursor: pointer; color: var(--muted); }
+.assumptions ul { margin: 10px 0 0; padding-left: 18px; color: var(--muted); font-size: 13px; line-height: 1.6; }
+
+.tiles { display: grid; grid-template-columns: repeat(auto-fill, minmax(135px, 1fr)); gap: 8px; margin-bottom: 12px; }
+.tile { background: #0e1117; border: 1px solid var(--border); border-radius: 8px; padding: 10px; }
+.tile-label { font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.03em; }
+.tile-value { font-size: 18px; font-weight: 600; margin-top: 4px; font-variant-numeric: tabular-nums; }
+.equity-chart { width: 100%; border: 1px solid var(--border); border-radius: 8px; overflow: hidden; }
+
+.status-pill { font-size: 11px; padding: 2px 8px; border-radius: 10px; font-weight: 600; }
+.status-pill.active { background: #26a69a22; color: #26a69a; }
+.status-pill.triggered { background: #f5a62322; color: var(--accent); }
+.status-pill.paused { background: #8b949e22; color: var(--muted); }
+
+/* =========================================================================
+   Chart toolbar, compare chip, drawing cursor
+   ========================================================================= */
+.chart-toolbar {
+  display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+  padding: 6px 14px; border-bottom: 1px solid var(--border); background: var(--bg);
+}
+.tb-select { background: #161b22; color: var(--text); border: 1px solid var(--border); border-radius: 6px; padding: 6px 8px; }
+.tb-group { display: flex; gap: 4px; }
+.tb-btn {
+  background: #161b22; color: var(--text); border: 1px solid var(--border); border-radius: 6px;
+  min-width: 34px; height: 34px; padding: 0 8px; cursor: pointer;
+}
+.tb-btn.wide { white-space: nowrap; }
+.tb-btn.active { border-color: var(--accent); color: var(--accent); }
+.tb-btn:disabled { opacity: 0.45; cursor: default; }
+.tb-compare { min-width: 200px; flex: 0 1 240px; }
+.tb-hint { color: var(--accent); font-size: 13px; }
+.compare-chip {
+  display: inline-flex; align-items: center; gap: 6px; background: #bc8cff22; color: #bc8cff;
+  border: 1px solid #bc8cff55; border-radius: 14px; padding: 4px 6px 4px 10px; font-size: 13px; width: fit-content;
+}
+.compare-chip button { background: none; border: none; color: inherit; cursor: pointer; }
+.chart-wrap.drawing .chart-main { cursor: crosshair; }
+
+/* =========================================================================
+   Watchlist panel
+   ========================================================================= */
+.side-panel.left-panel { border-left: none; border-right: 1px solid var(--border); }
+.watchlist-panel { padding: 10px; display: flex; flex-direction: column; gap: 8px; }
+.wl-head { display: flex; gap: 6px; }
+.wl-head select, .wl-new input {
+  flex: 1; min-width: 0; background: #0e1117; color: var(--text); border: 1px solid var(--border); border-radius: 6px; padding: 7px 8px;
+}
+.wl-add { display: flex; flex-direction: column; gap: 4px; }
+.wl-add .link-btn { align-self: flex-start; font-size: 13px; }
+.wl-new { display: flex; gap: 6px; }
+.wl-error { color: #ef5350; font-size: 12px; }
+.wl-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+.wl-table td { padding: 7px 4px; border-bottom: 1px solid var(--border); }
+.wl-table td.num { text-align: right; font-variant-numeric: tabular-nums; }
+.wl-table tr { cursor: pointer; }
+.wl-table tr:hover, .wl-table tr.current { background: #1f2630; }
+.wl-sym { font-weight: 600; display: flex; align-items: center; gap: 4px; }
+.wl-empty { font-size: 13px; padding: 6px 0; }
+
+/* =========================================================================
+   Alert toasts
+   ========================================================================= */
+.toasts { position: fixed; right: 16px; bottom: 16px; display: flex; flex-direction: column; gap: 8px; z-index: 200; max-width: min(360px, calc(100vw - 32px)); }
+.toast {
+  position: relative; background: #1f2630; border: 1px solid var(--accent); border-radius: 10px;
+  padding: 10px 34px 10px 12px; box-shadow: 0 6px 20px rgba(0,0,0,0.45); cursor: pointer;
+}
+.toast-close { position: absolute; top: 6px; right: 6px; background: none; border: none; color: var(--muted); cursor: pointer; }
+
+@media (max-width: 720px) {
+  .view-nav { order: 2; flex-basis: 100%; overflow-x: auto; }
+  .view-nav button { flex: 0 0 auto; padding: 8px 12px; }
+  .two-col { grid-template-columns: 1fr; }
+  .form-grid .span-2 { grid-column: 1 / -1; }
+  .tb-compare { flex-basis: 100%; }
+  .page { padding: 10px; }
+  .side-panel.left-panel { border-right: none; border-bottom: 1px solid var(--border); max-height: 38%; order: -1; }
+  .app-header { gap: 6px; padding: 8px 10px; }
+  .panel-btn { padding: 7px 9px; font-size: 13px; }
+  .content { overflow-y: auto; }
+  .content > .side-panel { flex-shrink: 0; }
+  .chart-area { min-height: 380px; flex: 0 0 auto; }
+  .chart-toolbar { padding: 6px 10px; }
+}
+
+/* Backtest scanner */
+.scan-filters { margin-top: 12px; padding-top: 12px; border-top: 1px dashed var(--border); }
+.form-grid label.check { flex-direction: row; align-items: center; gap: 8px; grid-column: span 2; color: var(--text); font-size: 13px; }
+.sig { display: inline-block; font-size: 12px; font-weight: 600; padding: 2px 8px; border-radius: 10px; white-space: nowrap; }
+.sig.entry { background: #26a69a22; color: #26a69a; }
+.sig.exit { background: #ef535022; color: #ef5350; }
+.sig.in_position { background: #58a6ff22; color: #58a6ff; }
+.sig.none { color: var(--muted); }
+.scan-table td.sym .small { font-weight: 400; }
+
+/* Data source dialog: feed health + history sync */
+.ds-health { margin-top: 6px; font-size: 13px; color: var(--muted); text-transform: none; display: flex; flex-wrap: wrap; align-items: center; gap: 4px; }
+.ds-health .err { flex-basis: 100%; }
+.ds-sync { margin-top: 14px; border: 1px solid var(--border); border-radius: 8px; padding: 10px; display: flex; flex-direction: column; gap: 4px; }
+.ds-sync-head { display: flex; justify-content: space-between; align-items: center; }

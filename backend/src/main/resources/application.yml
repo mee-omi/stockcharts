@@ -29,6 +29,44 @@ stockcharts:
   live-symbols: ${LIVE_SYMBOLS:RELIANCE,TCS,HDFCBANK,INFY,ICICIBANK}
   # Auto-backfill this many days of 1m history on first request for a symbol.
   backfill-days: ${BACKFILL_DAYS:5}
+  # Max wait for data-service responses (chunked broker history downloads can take minutes).
+  data-service-timeout: ${DATA_SERVICE_TIMEOUT:PT3M}
+  # Periodic download of broker history into the candle store (incremental).
+  history-sync:
+    enabled: ${HISTORY_SYNC_ENABLED:true}
+    on-startup: ${HISTORY_SYNC_ON_STARTUP:true}
+    # After the NSE close on weekdays (IST).
+    cron: ${HISTORY_SYNC_CRON:0 45 15 * * MON-FRI}
+    # timeframe:lookback-days
+    timeframes: ${HISTORY_SYNC_TIMEFRAMES:1d:1825,15m:120,1m:30}
+    # Index universes always synced; watchlist symbols are always included.
+    indices: ${HISTORY_SYNC_INDICES:NIFTY50}
+    max-symbols: ${HISTORY_SYNC_MAX_SYMBOLS:300}
+    include-mock: ${HISTORY_SYNC_INCLUDE_MOCK:false}
+  # Live ingestion on this instance; symbols clients subscribe to are added up to the cap.
+  live-enabled: ${LIVE_ENABLED:true}
+  live-max-symbols: ${LIVE_MAX_SYMBOLS:100}
+  alerts:
+    # How often active alerts are evaluated.
+    interval: ${ALERTS_INTERVAL:PT15S}
+    telegram-bot-token: ${TELEGRAM_BOT_TOKEN:}
+    telegram-chat-id: ${TELEGRAM_CHAT_ID:}
+    webhook-url: ${ALERTS_WEBHOOK_URL:}
+  rate-limit:
+    enabled: ${RATE_LIMIT_ENABLED:true}
+    requests-per-minute: ${RATE_LIMIT_RPM:600}
+    trading-per-minute: ${RATE_LIMIT_TRADING_RPM:60}
+    heavy-per-minute: ${RATE_LIMIT_HEAVY_RPM:30}
+    # Behind nginx / an ingress the client IP is in X-Forwarded-For.
+    trust-forwarded-for: ${RATE_LIMIT_TRUST_XFF:false}
+  cluster:
+    # Set true when running more than one backend replica (needs Flyway V8's shedlock table).
+    enabled: ${CLUSTER_ENABLED:false}
+    broker-relay-enabled: ${STOMP_RELAY_ENABLED:false}
+    broker-relay-host: ${STOMP_RELAY_HOST:localhost}
+    broker-relay-port: ${STOMP_RELAY_PORT:61613}
+    broker-relay-login: ${STOMP_RELAY_LOGIN:guest}
+    broker-relay-passcode: ${STOMP_RELAY_PASSCODE:guest}
 
 springdoc:
   swagger-ui:
@@ -38,7 +76,13 @@ management:
   endpoints:
     web:
       exposure:
-        include: health,info
+        include: health,info,metrics,prometheus
+  metrics:
+    tags:
+      application: stockcharts-backend
+    distribution:
+      percentiles-histogram:
+        http.server.requests: true
 
 logging:
   level:

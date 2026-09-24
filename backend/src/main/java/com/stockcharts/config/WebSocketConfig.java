@@ -15,9 +15,29 @@ import org.springframework.web.socket.config.annotation.WebSocketMessageBrokerCo
 @EnableWebSocketMessageBroker
 public class WebSocketConfig implements WebSocketMessageBrokerConfigurer {
 
+    private final AppProperties props;
+
+    public WebSocketConfig(AppProperties props) {
+        this.props = props;
+    }
+
     @Override
     public void configureMessageBroker(MessageBrokerRegistry registry) {
-        registry.enableSimpleBroker("/topic");
+        AppProperties.Cluster cluster = props.getCluster();
+        if (cluster.isBrokerRelayEnabled()) {
+            // Cluster mode: every replica publishes/subscribes through a shared STOMP broker
+            // (e.g. RabbitMQ with the rabbitmq_stomp plugin), so a tick or alert published by one
+            // instance reaches browsers connected to any instance.
+            registry.enableStompBrokerRelay("/topic")
+                    .setRelayHost(cluster.getBrokerRelayHost())
+                    .setRelayPort(cluster.getBrokerRelayPort())
+                    .setClientLogin(cluster.getBrokerRelayLogin())
+                    .setClientPasscode(cluster.getBrokerRelayPasscode())
+                    .setSystemLogin(cluster.getBrokerRelayLogin())
+                    .setSystemPasscode(cluster.getBrokerRelayPasscode());
+        } else {
+            registry.enableSimpleBroker("/topic");
+        }
         registry.setApplicationDestinationPrefixes("/app");
     }
 

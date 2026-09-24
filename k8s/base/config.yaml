@@ -21,6 +21,18 @@ data:
   POSTGRES_PORT: "5432"
   POSTGRES_DB: "stockcharts"
   POSTGRES_USER: "stockcharts"
+  # The backend sits behind the ingress, so the client IP for rate limiting is in X-Forwarded-For.
+  RATE_LIMIT_TRUST_XFF: "true"
+  # Running more than one backend replica? Set CLUSTER_ENABLED=true (ShedLock for scheduled jobs),
+  # enable STOMP_RELAY_ENABLED with a RabbitMQ/ActiveMQ STOMP broker, and LIVE_ENABLED=true on
+  # exactly one replica. The data service holds provider state in memory: keep it at 1 replica.
+  CLUSTER_ENABLED: "false"
+  # Live feeds: stream only in the NSE session; list exchange holidays (YYYY-MM-DD,...).
+  LIVE_MARKET_HOURS_ONLY: "true"
+  NSE_HOLIDAYS: ""
+  # Daily broker history download after the close (and at startup).
+  HISTORY_SYNC_TIMEFRAMES: "1d:1825,15m:120,1m:30"
+  HISTORY_SYNC_INDICES: "NIFTY50"
 ---
 apiVersion: v1
 kind: Secret
@@ -48,4 +60,9 @@ stringData:
   # Required when TRADING_BROKER=angelone or MARKET_DATA_PROVIDER=angelone.
   ANGELONE_API_KEY: ""
   ANGELONE_CLIENT_ID: ""
+  ANGELONE_PIN: ""
   ANGELONE_TOTP_SECRET: ""
+  # ---- Alert delivery (optional) ----
+  TELEGRAM_BOT_TOKEN: ""
+  TELEGRAM_CHAT_ID: ""
+  ALERTS_WEBHOOK_URL: ""

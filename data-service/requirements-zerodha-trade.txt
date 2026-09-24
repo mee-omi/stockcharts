@@ -1,4 +1,5 @@
-# Zerodha Kite Connect — trading (paid API subscription required).
-# Install on top of requirements.txt when TRADING_BROKER=zerodha.
+# Zerodha Kite Connect (paid API subscription) — trading and the official `kiteticker` market-data
+# provider (historical API + KiteTicker websocket).
+# Install on top of requirements.txt when TRADING_BROKER=zerodha or MARKET_DATA_PROVIDER=kiteticker.
 # Note: for market data only (MARKET_DATA_PROVIDER=zerodha), use requirements-zerodha.txt instead.
 kiteconnect>=5.0.1

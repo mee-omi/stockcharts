@@ -25,7 +25,12 @@ services:
       ZERODHA_ACCESS_TOKEN: ${ZERODHA_ACCESS_TOKEN:-}
       ANGELONE_API_KEY: ${ANGELONE_API_KEY:-}
       ANGELONE_CLIENT_ID: ${ANGELONE_CLIENT_ID:-}
+      ANGELONE_PIN: ${ANGELONE_PIN:-}
       ANGELONE_TOTP_SECRET: ${ANGELONE_TOTP_SECRET:-}
+      # Real brokers stream only during the NSE session; list exchange holidays (YYYY-MM-DD,...).
+      LIVE_MARKET_HOURS_ONLY: ${LIVE_MARKET_HOURS_ONLY:-true}
+      NSE_HOLIDAYS: ${NSE_HOLIDAYS:-}
+      LOG_FORMAT: ${LOG_FORMAT:-}
     ports:
       - "8000:8000"
 
@@ -38,6 +43,18 @@ services:
       POSTGRES_USER: ${POSTGRES_USER:-stockcharts}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-stockcharts}
       DATA_SERVICE_URL: http://data-service:8000
+      # Behind the frontend's nginx, the client IP for rate limiting is in X-Forwarded-For.
+      RATE_LIMIT_TRUST_XFF: "true"
+      # Optional alert delivery channels.
+      TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN:-}
+      TELEGRAM_CHAT_ID: ${TELEGRAM_CHAT_ID:-}
+      ALERTS_WEBHOOK_URL: ${ALERTS_WEBHOOK_URL:-}
+      # SPRING_PROFILES_ACTIVE=json for JSON (structured) logs.
+      SPRING_PROFILES_ACTIVE: ${BACKEND_PROFILES:-}
+      # Daily broker history download (after the close) into the candle store.
+      HISTORY_SYNC_ENABLED: ${HISTORY_SYNC_ENABLED:-true}
+      HISTORY_SYNC_TIMEFRAMES: ${HISTORY_SYNC_TIMEFRAMES:-1d:1825,15m:120,1m:30}
+      HISTORY_SYNC_INDICES: ${HISTORY_SYNC_INDICES:-NIFTY50}
     depends_on:
       timescaledb:
         condition: service_healthy

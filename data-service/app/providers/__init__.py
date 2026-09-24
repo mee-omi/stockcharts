@@ -19,9 +19,9 @@ def build_provider(name: str | None = None, enctoken: str | None = None) -> Mark
 
         return ZerodhaEnctokenProvider(enctoken=token)
     if name == "kiteticker":
-        from app.providers.kiteticker import KiteTickerProvider
+        from app.providers.kiteticker import KiteConnectProvider
 
-        return KiteTickerProvider(enctoken=token)
+        return KiteConnectProvider(api_key=settings.zerodha_api_key, access_token=settings.zerodha_access_token)
     if name == "groww":
         from app.providers.groww import GrowwMarketDataProvider
 
@@ -33,5 +33,6 @@ def build_provider(name: str | None = None, enctoken: str | None = None) -> Mark
             api_key=settings.angelone_api_key or "",
             client_id=settings.angelone_client_id or "",
             totp_secret=settings.angelone_totp_secret or "",
+            pin=settings.angelone_pin or "",
         )
     raise ValueError(f"Unknown provider: {name!r}. Available: {AVAILABLE_PROVIDERS}")

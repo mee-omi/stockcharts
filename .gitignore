@@ -26,3 +26,6 @@ k8s/overlays/prod/broker.secret.yaml
 .vscode/
 *.iml
 .DS_Store
+.pytest_cache/
+.ruff_cache/
+backups/

@@ -1,0 +1,6 @@
+# Test / lint tooling (not needed at runtime).
+-r requirements.txt
+pytest>=8.2
+# Used by the Angel One session code under test (the SDK itself is faked).
+pyotp>=2.9.0
+ruff>=0.6

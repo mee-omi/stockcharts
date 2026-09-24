@@ -1,5 +1,7 @@
 package com.stockcharts.trading;
 
+import com.stockcharts.journal.JournalEntry;
+import com.stockcharts.journal.JournalService;
 import com.stockcharts.trading.dto.FundsDto;
 import com.stockcharts.trading.dto.HoldingDto;
 import com.stockcharts.trading.dto.ModifyOrderRequest;
@@ -9,6 +11,8 @@ import com.stockcharts.trading.dto.PositionsDto;
 import com.stockcharts.trading.dto.TradingBrokerInfo;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -31,10 +35,14 @@ import java.util.Map;
 @Tag(name = "Trading", description = "Broker management, order placement, positions, holdings, funds")
 public class TradingController {
 
-    private final TradingClient trading;
+    private static final Logger log = LoggerFactory.getLogger(TradingController.class);
 
-    public TradingController(TradingClient trading) {
+    private final TradingClient trading;
+    private final JournalService journal;
+
+    public TradingController(TradingClient trading, JournalService journal) {
         this.trading = trading;
+        this.journal = journal;
     }
 
     // ---- broker management ----
@@ -44,6 +52,7 @@ public class TradingController {
             String apiKey,
             String accessToken,
             String clientId,
+            String pin,
             String totpSecret
     ) {}
 
@@ -60,6 +69,7 @@ public class TradingController {
         if (req.apiKey() != null && !req.apiKey().isBlank())         creds.put("api_key",       req.apiKey());
         if (req.accessToken() != null && !req.accessToken().isBlank()) creds.put("access_token",  req.accessToken());
         if (req.clientId() != null && !req.clientId().isBlank())     creds.put("client_id",      req.clientId());
+        if (req.pin() != null && !req.pin().isBlank())               creds.put("pin",            req.pin());
         if (req.totpSecret() != null && !req.totpSecret().isBlank()) creds.put("totp_secret",    req.totpSecret());
         return trading.setBroker(req.broker(), creds);
     }
@@ -69,7 +79,14 @@ public class TradingController {
     @PostMapping("/trading/orders")
     @Operation(summary = "Place a new order")
     public OrderDto placeOrder(@RequestBody PlaceOrderRequest req) {
-        return trading.placeOrder(req);
+        OrderDto order = trading.placeOrder(req);
+        try {
+            journal.recordIfFilled(order, journal.activeBroker(), req.tag(), JournalEntry.Source.APP);
+        } catch (Exception e) {
+            // Journalling must never fail an order that the broker has already accepted.
+            log.warn("Could not journal order {}: {}", order == null ? null : order.orderId(), e.getMessage());
+        }
+        return order;
     }
 
     @GetMapping("/trading/orders")

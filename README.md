@@ -2,7 +2,14 @@
 
 A full-stack platform for live and historical technical charting of **all NSE stocks**, sourced
 from **Zerodha Kite** via [PyZData](https://github.com/vikassharma545/Historical-Market-data-From-Zerodha),
-with a **TA4J** indicator engine, a **React PWA** frontend, and **Docker + Kubernetes** deployment.
+with its own indicator and expression engine, a **React PWA** frontend, and **Docker + Kubernetes** deployment.
+
+**Features:** multi-timeframe charts (candles, Heikin-Ashi, bars, line, area) with 12 built-in and
+custom formula indicators, drawings (trend lines, horizontal levels, Fibonacci), symbol comparison and
+bar replay · live watchlists · a multi-stock screener over NSE index universes · price/formula
+**alerts** (in-app, browser, Telegram, webhook) · a rule-based **backtester** · paper and live
+**trading** (Zerodha, Angel One) · a **trade journal** with realised P&L, Indian charges and a
+capital-gains tax estimate.
 
 > Out of the box it runs on a **synthetic mock data provider** — no credentials needed. Point it at
 > real Zerodha data by setting an `enctoken` (see [Configuration](#configuration)).
@@ -50,7 +57,7 @@ make up        # builds & starts timescaledb + data-service + backend + frontend
 ```
 
 Then open:
-- **Frontend:** http://localhost:8088
+- **Frontend:** http://localhost:3000
 - **Swagger UI:** http://localhost:8080/swagger-ui.html
 - **Data service:** http://localhost:8000/health
 
@@ -83,21 +90,42 @@ Copy `.env.example` to `.env`. Key settings:
 
 | Variable | Default | Meaning |
 |---|---|---|
-| `MARKET_DATA_PROVIDER` | `mock` | `mock` (synthetic) or `zerodha` (real, needs `ENCTOKEN`) |
+| `MARKET_DATA_PROVIDER` | `mock` | `mock`, `kiteticker`, `angelone` or `zerodha` — see below |
 | `ENCTOKEN` | _(empty)_ | Zerodha enctoken — required only for the `zerodha` provider |
 | `DATA_SERVICE_URL` | `http://localhost:8000` | Where the backend reaches the data service |
 | `POSTGRES_*` | `stockcharts` | DB host/port/name/user/password |
+| `TRADING_BROKER` | `mock` | `mock` (paper), `zerodha`, `angelone` (credentials in `.env.example`) |
+| `LIVE_SYMBOLS` | 5 large caps | Always streamed; any symbol a client opens is added automatically (cap `LIVE_MAX_SYMBOLS`, 100) |
+| `TELEGRAM_BOT_TOKEN` / `TELEGRAM_CHAT_ID` | _(empty)_ | Deliver fired alerts to Telegram |
+| `ALERTS_WEBHOOK_URL` | _(empty)_ | POST every fired alert as JSON to this URL |
+| `RATE_LIMIT_RPM` / `_TRADING_RPM` / `_HEAVY_RPM` | 600 / 60 / 30 | Per-client limits per minute (general / orders / screener+backtest) |
+| `BACKEND_PROFILES=json`, `LOG_FORMAT=json` | _(empty)_ | Structured JSON logs (backend / data service) |
 
-### Using real Zerodha data
+### Using real broker data (Zerodha or Angel One)
 
-1. Log in to https://kite.zerodha.com → DevTools → Application → Cookies → copy the `enctoken`.
-2. Set `MARKET_DATA_PROVIDER=zerodha` and `ENCTOKEN=<token>` (the token refreshes on each login).
-3. Install the optional dependency: `pip install -r data-service/requirements-zerodha.txt`
-   (the Docker image: build with `--build-arg ZERODHA=1`).
+Pick a provider in the UI (*source* button) or with `MARKET_DATA_PROVIDER`:
 
-The `zerodha` provider serves historical/intraday candles directly and emulates a live feed by
-polling the latest 1-minute candle. For a true continuous tick stream, implement the
-`kiteticker` provider (a stub is already wired) with a paid Kite Connect subscription.
+| Provider | History | Live | Credentials |
+|---|---|---|---|
+| `kiteticker` — Zerodha **Kite Connect** (recommended for Zerodha) | Official historical API | **KiteTicker websocket** | `ZERODHA_API_KEY` + today's `ZERODHA_ACCESS_TOKEN` (Kite Connect subscription; the token expires every morning) |
+| `angelone` — Angel One **SmartAPI** | `getCandleData` | **SmartWebSocket V2** | `ANGELONE_API_KEY`, `ANGELONE_CLIENT_ID`, `ANGELONE_PIN` (MPIN), `ANGELONE_TOTP_SECRET` — the session renews itself daily |
+| `zerodha` — Zerodha **enctoken** (no subscription) | PyZData | Polls the latest 1-minute bar every 5 s | `ENCTOKEN` from kite.zerodha.com cookies (expires daily) |
+
+Install the extras: `pip install -r data-service/requirements-zerodha-trade.txt` (Kite Connect),
+`-r requirements-angelone.txt` (Angel One) or `-r requirements-zerodha.txt` (enctoken); for Docker
+build the data service with `--build-arg ZERODHA_TRADE=1`, `ANGELONE=1` or `ZERODHA=1`.
+
+How data flows with a real broker:
+- **History** is requested in windows sized to each broker's per-request limit (e.g. 60 days of
+  1-minute bars on Kite, 30 on Angel One) and paced under their rate limits, in IST.
+- **Scheduled sync:** at startup and every weekday at 15:45 IST the backend downloads history for
+  watchlist symbols and the `HISTORY_SYNC_INDICES` universes (`HISTORY_SYNC_TIMEFRAMES`, default
+  5 years daily, 120 days 15-minute, 30 days 1-minute) — incrementally, only what's missing. Status
+  and a *Sync now* button are in the data-source dialog (`GET /history-sync`, `POST /history-sync/run`).
+- **Live:** the websocket connects only while someone is watching and the NSE session is open
+  (09:15–15:30 IST on trading days — list holidays in `NSE_HOLIDAYS`), reconnects on drops, and
+  feeds the live 1-minute candles. The dialog shows whether the feed is connected, the last tick
+  and any error (e.g. an expired token).
 
 ## REST API
 
@@ -115,6 +143,16 @@ Base path `/api/v1` (full schema at `/swagger-ui.html`):
 | POST | `/screener/run` | Run an ad-hoc screener over a universe |
 | GET/POST/DELETE | `/screener`, `/screener/{name}/run` | Save / list / run named screeners |
 | GET/POST/DELETE | `/watchlists` | Manage reusable symbol lists |
+| GET | `/screener/universes` | Named index universes (NIFTY50, BANKNIFTY, NIFTYIT, …) |
+| GET | `/quotes?symbols=A,B` | Last price and day change (watchlist) |
+| GET/POST/PUT/DELETE | `/alerts`, `/alerts/{id}/status`, `/alerts/events` | Alerts and trigger history; WS topic `/topic/alerts` |
+| POST | `/backtest` | Run a rule-based backtest (entry/exit expressions, stop/target, costs) |
+| POST | `/backtest/scan` | Backtest a strategy across a universe; rank, filter, latest-bar signals |
+| GET/POST | `/history-sync`, `/history-sync/run` | Scheduled broker-history download: status / run now |
+| GET/POST/PUT/DELETE | `/journal`, `/journal/sync` | Trade journal (filled orders are recorded automatically) |
+| GET | `/portfolio/report`, `/portfolio/report.csv` | Realised P&L (FIFO), charges, STCG/LTCG/intraday, tax estimate |
+| GET/PUT/DELETE | `/ui-state/{key}` | Saved chart layout and per-symbol drawings |
+| GET/POST | `/broker`, `/trading/*` | Broker switch, orders, positions, holdings, funds |
 
 Timeframes: `1m, 5m, 15m, 30m, 1h, 1d`.
 Built-in indicators: `SMA, EMA, WMA, RSI, MACD, BBANDS, STOCH, ATR, ADX, OBV, VWAP, CCI`.
@@ -122,7 +160,7 @@ Built-in indicators: `SMA, EMA, WMA, RSI, MACD, BBANDS, STOCH, ATR, ADX, OBV, VW
 ### Indicators, expressions & screeners
 
 Indicators are computed by our own primitive-`double[]` library (`com.stockcharts.ta`) — no
-BigDecimal, no external TA dependency.
+BigDecimal, no external TA dependency (TA4J is not used).
 
 A sandboxed **expression engine** powers custom indicators and screeners. Expressions operate on
 price fields (`open/high/low/close/volume/hl2/hlc3/ohlc4`) and functions
@@ -181,20 +219,68 @@ worker (offline shell). On Android/iOS, open the site and "Add to Home Screen" t
 app. The Vite dev server binds to `0.0.0.0`, so a phone on the same network can load it directly.
 For native app-store builds, wrap the PWA with Capacitor (not included).
 
+## Alerts, backtests and the portfolio report
+
+- **Alerts** use the screener's expression language on one symbol/timeframe (price templates such as
+  "crosses above 3000" become `crossover(close, 3000)`). They are evaluated every 15 s at the latest
+  bar and fire once, or once per bar while true. Delivery: the Alerts page, an in-app toast, a browser
+  notification, and optionally Telegram and a webhook.
+- **Backtests** read signals at a bar's close and fill at the next bar's open (no look-ahead);
+  stop-loss / take-profit are checked against each bar's high/low (stop first if both are touched).
+  Costs are a per-leg commission and slippage. Results: equity curve, drawdown, win rate, profit
+  factor, Sharpe, exposure and the trade list, which can be plotted on the chart.
+- **Backtest scanner** (Backtest → *Scan universe*, `POST /backtest/scan`): runs the same strategy on
+  every symbol of an index, watchlist, list or all stocks in parallel, after refreshing stale candles
+  so the latest bar is included. Results are ranked (return, profit factor, win rate, Sharpe,
+  drawdown…), filtered (min trades / win rate / profit factor) and show each symbol's signal on the
+  latest bar — *buy/short at next open*, *sell/cover at next open*, or *holding* with open P&L.
+  Optionally re-runs every 5/15/60 minutes while the page is open.
+- **Portfolio** matches journalled fills FIFO per symbol and classifies each closed lot as intraday
+  (same IST day or MIS), STCG or LTCG (held > 12 months). Charges and the per-financial-year tax
+  estimate use the rates listed in the report's "How this is calculated" section — they are
+  estimates for record keeping, not tax advice.
+
+## Operations
+
+- **Metrics:** backend `/actuator/prometheus` (HTTP, JVM, `stockcharts_*` screener/backtest/alert/tick
+  metrics) and data-service `/metrics`; the Kubernetes pods carry `prometheus.io/*` scrape annotations.
+- **Logs:** `BACKEND_PROFILES=json` / `LOG_FORMAT=json` switch to one-JSON-object-per-line logs.
+- **Rate limiting:** per client IP token buckets on `/api/**` (HTTP 429 + `Retry-After`).
+- **Backups:** `make db-backup` (compose) writes `backups/stockcharts-<UTC time>.dump`, keeping the
+  newest 14; `make db-restore FILE=…` restores one (stopping the backend meanwhile). On Kubernetes the
+  `db-backup` CronJob dumps nightly at 02:00 IST to the `db-backups` PVC.
+- **Multiple backend replicas:** set `CLUSTER_ENABLED=true` (ShedLock keeps scheduled jobs such as
+  alert evaluation on one replica), `STOMP_RELAY_ENABLED=true` with a RabbitMQ/ActiveMQ STOMP broker,
+  and `LIVE_ENABLED=false` on all but one replica. The data service keeps provider state in memory
+  and must stay at one replica.
+
 ## Project structure
 
 ```
 stockcharts/
-├── data-service/   FastAPI + PyZData (providers/: mock, zerodha, kiteticker)
-├── backend/        Spring Boot (instrument, candle, marketdata, indicator, live, config)
-├── frontend/       React PWA (StockSearch, Chart, IndicatorPanel, TimeframeBar)
-├── k8s/            Kustomize base + dev/prod overlays
+├── data-service/   FastAPI: providers/ (mock, zerodha, kiteticker, angelone, groww),
+│                   trading/ (mock paper broker, zerodha, angelone, groww), metrics, tests/
+├── backend/        Spring Boot: instrument, candle, marketdata, live, indicator, expr, ta,
+│                   screener, alert, backtest, journal, quote, trading, uistate, config
+├── frontend/       React PWA: Chart + toolbar, Watchlist, Screener, Alerts, Backtest,
+│                   Portfolio, Trading; src/lib (chart maths), e2e/ (Playwright)
+├── k8s/            Kustomize base (incl. backup CronJob) + dev/prod overlays
+├── scripts/        backup-db.sh, restore-db.sh
+├── .github/workflows/ci.yml
 ├── docker-compose.yml   Makefile   .env.example
 ```
 
 ## Testing
 
 ```bash
-cd backend && ./mvnw test     # TA4J indicator math + full-context REST integration (H2)
-cd frontend && npm run build  # type-check + production bundle
+make test        # all of the below except e2e
+cd backend && ./mvnw test          # indicator/backtest/P&L/rate-limit unit tests + REST integration (H2)
+STOCKCHARTS_TEST_PG_URL=jdbc:postgresql://localhost:5432/stockcharts ./mvnw test
+                                   # …plus Flyway migrations + entity validation on real Postgres
+cd data-service && pip install -r requirements-dev.txt && ruff check app tests && pytest
+cd frontend && npm test && npm run build   # vitest unit tests, type-check, production bundle
+cd frontend && npx playwright test         # end-to-end UI tests against a mocked API
 ```
+
+CI (`.github/workflows/ci.yml`) runs all of these on every pull request, plus Kustomize rendering and
+Docker image builds.

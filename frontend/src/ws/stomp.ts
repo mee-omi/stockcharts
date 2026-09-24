@@ -1,6 +1,6 @@
 import { Client, type IMessage, type StompSubscription } from '@stomp/stompjs'
 import SockJS from 'sockjs-client'
-import type { LiveUpdate } from '../api/types'
+import type { AlertEvent, LiveUpdate } from '../api/types'
 
 /**
  * Single shared STOMP connection (over SockJS for mobile-network resilience).
@@ -28,17 +28,17 @@ function ensureClient(): Client {
   return client
 }
 
-export function subscribeTicks(
-  symbol: string,
-  onTick: (u: LiveUpdate) => void,
-): () => void {
+/** Subscribe to a STOMP topic; returns an unsubscribe function (safe to call before connect). */
+export function subscribeTopic<T>(destination: string, onMessage: (m: T) => void): () => void {
   const c = ensureClient()
   let sub: StompSubscription | null = null
+  let cancelled = false
 
   const doSubscribe = () => {
-    sub = c.subscribe(`/topic/ticks/${symbol.toUpperCase()}`, (msg: IMessage) => {
+    if (cancelled) return
+    sub = c.subscribe(destination, (msg: IMessage) => {
       try {
-        onTick(JSON.parse(msg.body) as LiveUpdate)
+        onMessage(JSON.parse(msg.body) as T)
       } catch {
         /* ignore malformed frames */
       }
@@ -49,6 +49,17 @@ export function subscribeTicks(
   else pending.push(doSubscribe)
 
   return () => {
+    cancelled = true
     if (sub) sub.unsubscribe()
   }
+}
+
+/** Live candle updates for one symbol. Subscribing also asks the backend to stream it. */
+export function subscribeTicks(symbol: string, onTick: (u: LiveUpdate) => void): () => void {
+  return subscribeTopic<LiveUpdate>(`/topic/ticks/${symbol.toUpperCase()}`, onTick)
+}
+
+/** Fired alerts, broadcast to every connected client. */
+export function subscribeAlerts(onAlert: (e: AlertEvent) => void): () => void {
+  return subscribeTopic<AlertEvent>('/topic/alerts', onAlert)
 }

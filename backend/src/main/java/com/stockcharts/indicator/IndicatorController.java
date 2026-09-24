@@ -24,7 +24,7 @@ import java.util.List;
 
 @RestController
 @RequestMapping("/api/v1/indicators")
-@Tag(name = "Indicators", description = "Technical indicator catalog and computation (TA4J)")
+@Tag(name = "Indicators", description = "Technical indicator catalog and computation")
 public class IndicatorController {
 
     private final IndicatorEngine engine;

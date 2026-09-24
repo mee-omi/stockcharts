@@ -3,11 +3,19 @@ import ConditionBuilder from './ConditionBuilder'
 import {
   listCustomIndicators,
   listScreeners,
+  listUniverses,
   listWatchlists,
   runScreener,
   saveScreener,
 } from '../api/client'
-import { TIMEFRAMES, type ScreenerDef, type ScreenerResult, type UniverseType, type Watchlist } from '../api/types'
+import {
+  TIMEFRAMES,
+  type ScreenerDef,
+  type ScreenerResult,
+  type UniverseInfo,
+  type UniverseType,
+  type Watchlist,
+} from '../api/types'
 
 const DEFAULT_COLUMNS = [
   { label: 'RSI14', expression: 'rsi(close,14)' },
@@ -21,7 +29,8 @@ interface Props {
 export default function ScreenerView({ onPickSymbol }: Props) {
   const [expression, setExpression] = useState('(rsi(close, 14) < 30)')
   const [universeType, setUniverseType] = useState<UniverseType>('index')
-  const [universeValue, setUniverseValue] = useState('')
+  const [universeValue, setUniverseValue] = useState('NIFTY50')
+  const [indices, setIndices] = useState<UniverseInfo[]>([])
   const [timeframe, setTimeframe] = useState('1d')
   const [watchlists, setWatchlists] = useState<Watchlist[]>([])
   const [customNames, setCustomNames] = useState<string[]>([])
@@ -35,6 +44,7 @@ export default function ScreenerView({ onPickSymbol }: Props) {
 
   useEffect(() => {
     listWatchlists().then(setWatchlists).catch(() => {})
+    listUniverses().then(setIndices).catch(() => {})
     listCustomIndicators().then((cs) => setCustomNames(cs.map((c) => c.name))).catch(() => {})
     refreshSaved()
   }, [])
@@ -43,8 +53,7 @@ export default function ScreenerView({ onPickSymbol }: Props) {
     setLoading(true)
     setError(null)
     try {
-      const value =
-        universeType === 'list' || universeType === 'watchlist' ? universeValue : undefined
+      const value = universeType === 'all' ? undefined : universeValue
       const res = await runScreener({
         expression,
         timeframe,
@@ -63,8 +72,7 @@ export default function ScreenerView({ onPickSymbol }: Props) {
 
   const doSave = async () => {
     if (!saveName.trim()) return
-    const value =
-      universeType === 'list' || universeType === 'watchlist' ? universeValue : undefined
+    const value = universeType === 'all' ? undefined : universeValue
     await saveScreener({ name: saveName.trim(), expression, timeframe, universe: { type: universeType, value } })
     setSaveName('')
     refreshSaved()
@@ -74,7 +82,7 @@ export default function ScreenerView({ onPickSymbol }: Props) {
     setExpression(def.expression)
     setTimeframe(def.timeframe)
     setUniverseType(def.universe.type)
-    setUniverseValue(def.universe.value ?? '')
+    setUniverseValue(def.universe.value ?? (def.universe.type === 'index' ? 'NIFTY50' : ''))
   }
 
   const colLabels = DEFAULT_COLUMNS.map((c) => c.label)
@@ -84,12 +92,26 @@ export default function ScreenerView({ onPickSymbol }: Props) {
       <div className="screener-controls">
         <div className="control-row">
           <label>Universe</label>
-          <select value={universeType} onChange={(e) => setUniverseType(e.target.value as UniverseType)}>
-            <option value="index">NIFTY-50</option>
-            <option value="all">All NSE</option>
+          <select
+            value={universeType}
+            onChange={(e) => {
+              const t = e.target.value as UniverseType
+              setUniverseType(t)
+              setUniverseValue(t === 'index' ? 'NIFTY50' : '')
+            }}
+          >
+            <option value="index">Index</option>
+            <option value="all">All stocks</option>
             <option value="list">Custom list</option>
             <option value="watchlist">Watchlist</option>
           </select>
+          {universeType === 'index' && (
+            <select value={universeValue} onChange={(e) => setUniverseValue(e.target.value)} aria-label="Index">
+              {(indices.length ? indices : [{ code: 'NIFTY50', label: 'NIFTY 50', size: 50 }]).map((i) => (
+                <option key={i.code} value={i.code}>{i.label} ({i.size})</option>
+              ))}
+            </select>
+          )}
           {universeType === 'list' && (
             <input
               className="universe-input"

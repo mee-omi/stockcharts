@@ -30,6 +30,7 @@ def build_trading_provider(
             api_key=credentials.get("api_key") or settings.angelone_api_key or "",
             client_id=credentials.get("client_id") or settings.angelone_client_id or "",
             totp_secret=credentials.get("totp_secret") or settings.angelone_totp_secret or "",
+            pin=credentials.get("pin") or settings.angelone_pin or "",
         )
 
     if name == "groww":
