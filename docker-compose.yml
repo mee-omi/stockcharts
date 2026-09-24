@@ -29,6 +29,7 @@ services:
       ANGELONE_TOTP_SECRET: ${ANGELONE_TOTP_SECRET:-}
       # Real brokers stream only during the NSE session; list exchange holidays (YYYY-MM-DD,...).
       LIVE_MARKET_HOURS_ONLY: ${LIVE_MARKET_HOURS_ONLY:-true}
+      MOCK_ALWAYS_OPEN: ${MOCK_ALWAYS_OPEN:-false}
       NSE_HOLIDAYS: ${NSE_HOLIDAYS:-}
       LOG_FORMAT: ${LOG_FORMAT:-}
     ports:
@@ -47,6 +48,8 @@ services:
       RATE_LIMIT_TRUST_XFF: "true"
       # Login: the first visit creates the account. Set AUTH_SECRET (32+ chars) to keep sessions
       # valid across database resets; set AUTH_COOKIE_SECURE=true when served over HTTPS.
+      # Exchange holidays: the backend's session calendar skips them (same list as the data service).
+      NSE_HOLIDAYS: ${NSE_HOLIDAYS:-}
       AUTH_ENABLED: ${AUTH_ENABLED:-true}
       AUTH_SECRET: ${AUTH_SECRET:-}
       AUTH_COOKIE_SECURE: ${AUTH_COOKIE_SECURE:-false}

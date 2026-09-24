@@ -16,6 +16,7 @@ import AlertToaster from './components/AlertToaster'
 import BacktestView from './components/BacktestView'
 import PortfolioView from './components/PortfolioView'
 import { UserMenu } from './components/AuthGate'
+import MarketStatusChip from './components/MarketStatusChip'
 import {
   applyIndicators,
   getCandles,
@@ -320,6 +321,7 @@ export default function App() {
               ) : (
                 <span className="hint">Search and select a stock to begin</span>
               )}
+              <MarketStatusChip />
             </div>
             <div className="sub-header-right">
               <TimeframeBar value={timeframe} onChange={setTimeframe} />

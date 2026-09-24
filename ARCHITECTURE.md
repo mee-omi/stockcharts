@@ -150,7 +150,7 @@ through configuration, or at runtime from the UI.
 ### 2.10 Market data
 | Provider | Historical | Live |
 |---|---|---|
-| `mock` (default) | ~75 NSE stocks + 8 NSE/BSE indices. Price is a deterministic function of time, so every timeframe agrees and restarts reproduce the same data | Ticks sample the same curve (24/7) |
+| `mock` (default) | ~75 NSE stocks + 8 NSE/BSE indices. Price is a deterministic function of time, so every timeframe agrees and restarts reproduce the same data. Bars exist only in the NSE session (like a real feed); `MOCK_ALWAYS_OPEN=true` gives a 24/7 market | Ticks sample the same curve, only while the market is open |
 | `kiteticker` (Zerodha Kite Connect) | `historical_data` in ≤ Kite-limit windows (60 d for 1m … 2000 d for 1d), paced < 3 req/s, IST | KiteTicker websocket (FULL mode), day volume |
 | `angelone` (SmartAPI) | Instrument master for symbol↔token; `getCandleData` in ≤ SmartAPI-limit windows (30 d for 1m …), IST; auto re-login daily and on token errors | SmartWebSocket V2 (QUOTE mode; paise → rupees), day volume |
 | `zerodha` (enctoken) | PyZData (its own windowing and pacing); naive-IST timestamps converted | Polls the latest 1m bar and sends the whole bar |
@@ -166,6 +166,20 @@ tick, last error).
 Ticks now carry either `day_volume` (websocket feeds) or a whole `bar` (polling); the backend's
 `TickAggregator` derives per-minute volume from day volume, replaces its bar with polled
 snapshots, and continues a stored bar when the stream (re)connects mid-minute.
+
+**Indian market time.** Candles are stored and sent as epoch timestamps (UTC). Bars follow the
+NSE convention used by Kite and SmartAPI:
+- Intraday bars are anchored at the 09:15 session open, so 1h bars are 09:15, 10:15 … 15:15, and
+  the last one is cut short at 15:30.
+- Daily bars are stamped at IST midnight.
+- The backend's `NseCalendar` (holidays from `NSE_HOLIDAYS`) decides which bars should exist.
+  `CandleService` therefore doesn't treat nights, weekends or holidays as missing data: a chart
+  opened after the close doesn't re-fetch the finished session.
+- `GET /api/v1/market/status` reports whether the session is open and when that changes.
+
+The frontend renders every chart label in IST (`lib/ist.ts`: axis ticks, crosshair, replay), and
+builds live bars with the same session anchors. "More history" asks for whole sessions rather
+than calendar minutes.
 
 **History sync** (`HistorySyncService`): at startup and on `stockcharts.history-sync.cron`
 (15:45 IST Mon–Fri) it walks watchlist symbols + configured index universes + live symbols and,
@@ -386,6 +400,7 @@ filters by close date and broker.
 | Portfolio | `GET /portfolio/report`, `GET /portfolio/report.csv` (`from`, `to`, `broker`) |
 | UI state | `GET/PUT/DELETE /ui-state/{key}` |
 | Data source | `GET/POST /datasource` |
+| Market | `GET /market/status` |
 | Auth | `GET /auth/status`, `POST /auth/setup`, `/auth/login`, `/auth/logout`, `/auth/password` |
 | Risk | `GET/PUT /risk`, `POST /risk/kill-switch`, `POST /trading/orders/preview` |
 | Trading | `GET/POST /broker`, `GET/POST /trading/orders`, `PUT/DELETE /trading/orders/{id}`, `GET /trading/positions`, `/holdings`, `/funds` |
@@ -405,7 +420,8 @@ Data-service internal API: `/health`, `/metrics`, `/api/provider`, `/api/instrum
 | `MARKET_DATA_PROVIDER`, `ENCTOKEN`, `TICK_INTERVAL_SECONDS`, `ZERODHA_POLL_SECONDS` | data-service | `mock`, —, `1.0`, `5.0` |
 | `TRADING_BROKER` + broker credentials | data-service | `mock` |
 | `ZERODHA_API_KEY`, `ZERODHA_ACCESS_TOKEN` / `ANGELONE_API_KEY`, `_CLIENT_ID`, `_PIN`, `_TOTP_SECRET` | data-service | broker credentials (market data + trading) |
-| `LIVE_MARKET_HOURS_ONLY`, `NSE_HOLIDAYS` | data-service | `true`, none |
+| `LIVE_MARKET_HOURS_ONLY`, `MOCK_ALWAYS_OPEN` | data-service | `true`, `false` |
+| `NSE_HOLIDAYS` | data-service + backend | none |
 | `KITE_HISTORY_RPS`, `ANGELONE_HISTORY_RPS` | data-service | `2.5`, `2.5` |
 | `HISTORY_SYNC_ENABLED`, `HISTORY_SYNC_CRON`, `HISTORY_SYNC_TIMEFRAMES`, `HISTORY_SYNC_INDICES` | backend | on, `0 45 15 * * MON-FRI` (IST), `1d:1825,15m:120,1m:30`, `NIFTY50` |
 | `DATA_SERVICE_TIMEOUT` | backend | `PT3M` |
@@ -452,8 +468,10 @@ Data-service internal API: `/health`, `/metrics`, `/api/provider`, `/api/instrum
    credentials and has no auth of its own).
 2. **Broker credentials** travel in plain JSON on `POST /broker` and live only in the data
    service's memory.
-3. **Market hours / IST**: charts render in UTC, the mock trades 24/7, and daily candles are not
-   aligned to the Indian trading session or holidays.
+3. **Market calendar**: holidays must be listed by hand in `NSE_HOLIDAYS` each year; special
+   sessions (Muhurat trading) and exchange-specific timings (MCX, currency) are not modelled.
+   Charts keep time gaps for nights and weekends as the broker data has them (no "session-only"
+   x-axis compression).
 4. **Paper broker realism**: fills at static seed prices (not the live mock price), no brokerage,
    in-memory state.
 5. **Live data:** KiteTicker and SmartWebSocket V2 are implemented against the SDKs but untested

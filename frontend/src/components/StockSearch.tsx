@@ -33,7 +33,7 @@ export default function StockSearch({ onSelect, placeholder, compact, clearOnSel
       cacheOptions
       defaultOptions
       loadOptions={loadOptions}
-      placeholder={placeholder ?? 'Search symbol (e.g. RELIANCE, NIFTY50)…'}
+      placeholder={placeholder ?? 'Search symbol…'}
       aria-label={ariaLabel ?? 'Search symbols'}
       onChange={(opt) => opt && onSelect(opt.value)}
       {...(clearOnSelect ? { value: null } : {})}
@@ -48,7 +48,7 @@ export default function StockSearch({ onSelect, placeholder, compact, clearOnSel
         menu: (base) => ({ ...base, background: '#161b22', zIndex: 50 }),
         input: (base) => ({ ...base, color: '#e6edf3' }),
         singleValue: (base) => ({ ...base, color: '#e6edf3' }),
-        placeholder: (base) => ({ ...base, color: '#8b949e' }),
+        placeholder: (base) => ({ ...base, color: '#8b949e', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }),
         option: (base, state) => ({
           ...base,
           background: state.isFocused ? '#21262d' : 'transparent',

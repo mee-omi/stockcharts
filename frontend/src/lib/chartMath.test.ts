@@ -72,6 +72,9 @@ describe('drawing helpers', () => {
   })
 
   it('computes the start of an older history range in ms', () => {
-    expect(olderRangeStart(86_400 * 10, '1d', 5)).toBe(86_400 * 5 * 1000)
+    // 5 daily bars = 5 sessions → 7 calendar days + 3 days of holiday slack.
+    expect(olderRangeStart(86_400 * 100, '1d', 5)).toBe(86_400 * 90 * 1000)
+    // 500 one-minute bars need two sessions, not 500 calendar minutes (which can fall overnight).
+    expect(olderRangeStart(86_400 * 100, '1m', 500)).toBe(86_400 * 94 * 1000)
   })
 })

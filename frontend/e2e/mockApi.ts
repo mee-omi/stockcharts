@@ -91,6 +91,10 @@ export async function mockApi(page: Page, init: Partial<MockState> = {}): Promis
         trigger_price: null, status: 'OPEN', filled_quantity: 0, average_price: 0, timestamp: Date.now(), tag: '' })
     }
     if (path === '/trading/orders') return json([])
+    if (path === '/market/status') {
+      return json({ open: false, now: Date.parse('2026-09-25T18:00:00+05:30'),
+        nextChange: Date.parse('2026-09-28T09:15:00+05:30'), timezone: 'Asia/Kolkata' })
+    }
     if (path === '/instruments') {
       const q = (url.searchParams.get('query') ?? '').toLowerCase()
       return json(INSTRUMENTS.filter((i) => !q || i.symbol.toLowerCase().includes(q) || i.name.toLowerCase().includes(q)))

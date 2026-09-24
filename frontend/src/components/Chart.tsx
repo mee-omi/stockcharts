@@ -25,6 +25,7 @@ import type {
 } from '../api/types'
 import { subscribeTicks } from '../ws/stomp'
 import { fibLevels, heikinAshi, LiveBarBuilder, orderedSegment, snapTime } from '../lib/chartMath'
+import { istChartOptions } from '../lib/ist'
 
 const LINE_COLORS = [
   '#f5a623', '#4caf50', '#e91e63', '#00bcd4', '#9c27b0',
@@ -46,7 +47,9 @@ const baseChartOptions = {
   },
   crosshair: { mode: CrosshairMode.Normal },
   rightPriceScale: { borderColor: '#30363d' },
-  timeScale: { borderColor: '#30363d', timeVisible: true, secondsVisible: false },
+  // Data is epoch seconds (UTC); every label is rendered in IST.
+  localization: istChartOptions.localization,
+  timeScale: { borderColor: '#30363d', timeVisible: true, secondsVisible: false, ...istChartOptions.timeScale },
   autoSize: true,
 }
 

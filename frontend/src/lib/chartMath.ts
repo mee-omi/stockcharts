@@ -1,4 +1,5 @@
 import type { Candle, LiveUpdate, Timeframe } from '../api/types'
+import { barStart, sessionSpanBefore } from './ist'
 
 const TF_SECONDS: Record<Timeframe, number> = {
   '1m': 60,
@@ -43,7 +44,7 @@ export function heikinAshi(candles: Candle[]): Candle[] {
  */
 export class LiveBarBuilder {
   private bar: Candle
-  private readonly tf: number
+  private readonly tf: Timeframe
   private base: number
   private readonly loadedMinute: number
   private first = new Map<number, number>()
@@ -51,7 +52,7 @@ export class LiveBarBuilder {
 
   constructor(last: Candle, tf: Timeframe, loadedAtSec: number = Math.floor(Date.now() / 1000)) {
     this.bar = { ...last }
-    this.tf = timeframeSeconds(tf)
+    this.tf = tf
     this.base = last.volume
     this.loadedMinute = loadedAtSec - (loadedAtSec % 60)
   }
@@ -62,7 +63,7 @@ export class LiveBarBuilder {
 
   /** Returns the updated bar and whether it is a new one, or null for a stale update. */
   apply(u: LiveUpdate): { bar: Candle; isNew: boolean } | null {
-    const bucket = u.time - (u.time % this.tf)
+    const bucket = barStart(this.tf, u.time)
     let isNew = false
     if (bucket < this.bar.time) return null
     if (bucket > this.bar.time) {
@@ -108,9 +109,12 @@ export function orderedSegment(
     : [{ time: t2, value: p2 }, { time: t1, value: p1 }]
 }
 
-/** Start of a range reaching `bars` bars further back than `earliestSec`, in epoch ms. */
+/**
+ * Start of a range reaching about `bars` more bars back than `earliestSec`, in epoch ms. Bars
+ * exist only in NSE sessions, so the span covers whole sessions plus nights and weekends.
+ */
 export function olderRangeStart(earliestSec: number, tf: Timeframe, bars: number): number {
-  return (earliestSec - timeframeSeconds(tf) * bars) * 1000
+  return sessionSpanBefore(earliestSec, tf, bars)
 }
 
 /**

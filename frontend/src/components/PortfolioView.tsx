@@ -52,10 +52,10 @@ function ReportTab() {
   }, [params])
 
   const cumulative = useMemo(() => (report?.daily ?? []).map((d) => ({
-    time: Math.floor(new Date(`${d.date}T00:00:00Z`).getTime() / 1000), value: d.cumulative,
+    time: Math.floor(new Date(`${d.date}T00:00:00+05:30`).getTime() / 1000), value: d.cumulative,
   })), [report])
   const daily = useMemo(() => (report?.daily ?? []).map((d) => ({
-    time: Math.floor(new Date(`${d.date}T00:00:00Z`).getTime() / 1000), value: d.netPnl,
+    time: Math.floor(new Date(`${d.date}T00:00:00+05:30`).getTime() / 1000), value: d.netPnl,
   })), [report])
 
   const s = report?.summary

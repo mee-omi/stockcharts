@@ -1,3 +1,6 @@
+import type { UTCTimestamp } from 'lightweight-charts'
+import { istCrosshairLabel } from '../lib/ist'
+
 interface Props {
   total: number
   count: number
@@ -14,10 +17,7 @@ interface Props {
 const SPEEDS = [1, 2, 5, 10] // bars per second
 
 function fmt(epochSec?: number): string {
-  if (!epochSec) return '—'
-  const d = new Date(epochSec * 1000)
-  return d.toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' }) +
-    ' ' + d.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' })
+  return epochSec ? istCrosshairLabel(epochSec as UTCTimestamp) : '—'
 }
 
 export default function ReplayControls({

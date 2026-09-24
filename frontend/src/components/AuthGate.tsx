@@ -132,11 +132,13 @@ export function UserMenu() {
 
   return (
     <div className="user-menu">
-      <button className="panel-btn" onClick={() => { setOpen((o) => !o); setMsg(null) }} title="Account">
-        👤 {status.username}
+      <button className="panel-btn" onClick={() => { setOpen((o) => !o); setMsg(null) }}
+              title={`Signed in as ${status.username}`} aria-label={`Account: ${status.username}`}>
+        👤
       </button>
       {open && (
         <div className="user-menu-pop">
+          <div className="user-menu-name">Signed in as <strong>{status.username}</strong></div>
           {changing ? (
             <form onSubmit={submit} className="user-menu-form">
               <input className="of-input" type="password" placeholder="Current password" autoComplete="current-password"

@@ -23,8 +23,11 @@ class Settings(BaseSettings):
     zerodha_poll_seconds: float = 5.0
 
     # Real brokers only stream during the NSE session (09:15–15:30 IST, weekdays, not holidays).
-    # Set false to stream around the clock (the mock provider always streams).
+    # Set false to stream around the clock.
     live_market_hours_only: bool = True
+    # The mock follows the NSE session too (bars 09:15–15:30 IST on trading days, ticks only while
+    # the market is open). Set true for a 24/7 market, e.g. to demo live ticks in the evening.
+    mock_always_open: bool = False
     # Exchange holidays (YYYY-MM-DD, comma separated) — the session calendar skips these days.
     nse_holidays: str = ""
 
