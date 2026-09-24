@@ -20,6 +20,64 @@ public class AppProperties {
     private final RateLimit rateLimit = new RateLimit();
     private final Cluster cluster = new Cluster();
     private final HistorySync historySync = new HistorySync();
+    private final Auth auth = new Auth();
+    /** Browser origins allowed to call the API / open the WebSocket cross-origin (same-origin always works). */
+    private List<String> allowedOrigins = List.of();
+
+    /** Login. Keep enabled; disable only on a trusted, private network. */
+    public static class Auth {
+        private boolean enabled = true;
+        /** HMAC key for session tokens (≥ 32 chars); generated and stored in the DB when unset. */
+        private String secret;
+        private java.time.Duration sessionTtl = java.time.Duration.ofDays(7);
+        /** Force the Secure cookie flag (it is set automatically for HTTPS requests). */
+        private boolean cookieSecure = false;
+
+        public boolean isEnabled() {
+            return enabled;
+        }
+
+        public void setEnabled(boolean enabled) {
+            this.enabled = enabled;
+        }
+
+        public String getSecret() {
+            return secret;
+        }
+
+        public void setSecret(String secret) {
+            this.secret = secret;
+        }
+
+        public java.time.Duration getSessionTtl() {
+            return sessionTtl;
+        }
+
+        public void setSessionTtl(java.time.Duration sessionTtl) {
+            this.sessionTtl = sessionTtl;
+        }
+
+        public boolean isCookieSecure() {
+            return cookieSecure;
+        }
+
+        public void setCookieSecure(boolean cookieSecure) {
+            this.cookieSecure = cookieSecure;
+        }
+    }
+
+    public Auth getAuth() {
+        return auth;
+    }
+
+    public List<String> getAllowedOrigins() {
+        return allowedOrigins;
+    }
+
+    public void setAllowedOrigins(List<String> allowedOrigins) {
+        this.allowedOrigins = allowedOrigins == null ? List.of()
+                : allowedOrigins.stream().map(String::trim).filter(o -> !o.isEmpty() && !o.equals("*")).toList();
+    }
     /** Max wait for a data-service response; chunked multi-year broker downloads can be slow. */
     private java.time.Duration dataServiceTimeout = java.time.Duration.ofMinutes(3);
 
@@ -138,6 +196,8 @@ public class AppProperties {
         private int tradingPerMinute = 60;
         /** CPU-heavy endpoints: screener runs and backtests. */
         private int heavyPerMinute = 30;
+        /** Login / setup / password-change attempts (brute-force protection). */
+        private int authPerMinute = 10;
         /** Use X-Forwarded-For as the client address (only behind a trusted proxy). */
         private boolean trustForwardedFor = false;
 
@@ -171,6 +231,14 @@ public class AppProperties {
 
         public void setHeavyPerMinute(int heavyPerMinute) {
             this.heavyPerMinute = heavyPerMinute;
+        }
+
+        public int getAuthPerMinute() {
+            return authPerMinute;
+        }
+
+        public void setAuthPerMinute(int authPerMinute) {
+            this.authPerMinute = authPerMinute;
         }
 
         public boolean isTrustForwardedFor() {

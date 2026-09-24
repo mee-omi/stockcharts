@@ -15,6 +15,7 @@ import AlertsView from './components/AlertsView'
 import AlertToaster from './components/AlertToaster'
 import BacktestView from './components/BacktestView'
 import PortfolioView from './components/PortfolioView'
+import { UserMenu } from './components/AuthGate'
 import {
   applyIndicators,
   getCandles,
@@ -304,6 +305,7 @@ export default function App() {
             </button>
           </>
         )}
+        <UserMenu />
       </header>
 
       {view === 'chart' ? (

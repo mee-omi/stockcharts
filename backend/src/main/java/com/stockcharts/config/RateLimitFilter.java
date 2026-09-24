@@ -24,7 +24,7 @@ import java.util.concurrent.ConcurrentHashMap;
 @Order(Ordered.HIGHEST_PRECEDENCE + 10)
 public class RateLimitFilter extends OncePerRequestFilter {
 
-    enum Tier { DEFAULT, TRADING, HEAVY }
+    enum Tier { DEFAULT, TRADING, HEAVY, AUTH }
 
     private final AppProperties.RateLimit config;
     private final Map<String, Bucket> buckets = new ConcurrentHashMap<>();
@@ -64,6 +64,10 @@ public class RateLimitFilter extends OncePerRequestFilter {
 
     static Tier tier(String method, String path) {
         boolean write = !"GET".equalsIgnoreCase(method);
+        if (write && (path.equals("/api/v1/auth/login") || path.equals("/api/v1/auth/setup")
+                || path.equals("/api/v1/auth/password"))) {
+            return Tier.AUTH;
+        }
         if (write && (path.startsWith("/api/v1/trading/") || path.equals("/api/v1/broker")
                 || path.equals("/api/v1/datasource"))) {
             return Tier.TRADING;
@@ -80,6 +84,7 @@ public class RateLimitFilter extends OncePerRequestFilter {
         return switch (t) {
             case TRADING -> config.getTradingPerMinute();
             case HEAVY -> config.getHeavyPerMinute();
+            case AUTH -> config.getAuthPerMinute();
             default -> config.getRequestsPerMinute();
         };
     }

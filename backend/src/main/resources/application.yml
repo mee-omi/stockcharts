@@ -52,8 +52,19 @@ stockcharts:
     telegram-bot-token: ${TELEGRAM_BOT_TOKEN:}
     telegram-chat-id: ${TELEGRAM_CHAT_ID:}
     webhook-url: ${ALERTS_WEBHOOK_URL:}
+  # Login. Keep enabled; disable only on a trusted private network.
+  auth:
+    enabled: ${AUTH_ENABLED:true}
+    # HMAC key for sessions (>= 32 chars). Unset: generated once and stored in the database.
+    secret: ${AUTH_SECRET:}
+    session-ttl: ${AUTH_SESSION_TTL:P7D}
+    cookie-secure: ${AUTH_COOKIE_SECURE:false}
+  # Extra browser origins allowed cross-origin (same-origin always works). The Vite dev server
+  # rewrites Host, so it is listed for local development.
+  allowed-origins: ${ALLOWED_ORIGINS:http://localhost:5173}
   rate-limit:
     enabled: ${RATE_LIMIT_ENABLED:true}
+    auth-per-minute: ${RATE_LIMIT_AUTH_RPM:10}
     requests-per-minute: ${RATE_LIMIT_RPM:600}
     trading-per-minute: ${RATE_LIMIT_TRADING_RPM:60}
     heavy-per-minute: ${RATE_LIMIT_HEAVY_RPM:30}

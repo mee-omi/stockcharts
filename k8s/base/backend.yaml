@@ -33,6 +33,10 @@ spec:
             - name: ALERTS_WEBHOOK_URL
               valueFrom:
                 secretKeyRef: { name: app-secret, key: ALERTS_WEBHOOK_URL, optional: true }
+            # Session signing key; when absent one is generated and kept in the database.
+            - name: AUTH_SECRET
+              valueFrom:
+                secretKeyRef: { name: app-secret, key: AUTH_SECRET, optional: true }
           envFrom:
             - configMapRef: { name: app-config }
           readinessProbe:

@@ -28,7 +28,13 @@ export interface MockState {
   watchlists: { name: string; symbols: string[] }[]
   alerts: any[]
   requests: { method: string; path: string; body: any }[]
+  auth: { authEnabled: boolean; setupRequired: boolean; authenticated: boolean; username: string | null }
+  broker: string
+  risk: any
 }
+
+const DEFAULT_RISK = { killSwitch: false, maxQuantityPerOrder: 1000, maxOrderValue: 200000, maxOrdersPerDay: 50,
+  maxDailyLoss: 10000, requireConfirmation: true, applyToPaper: true }
 
 /** Route every /api/v1 call to in-memory fixtures; STOMP (/ws) is blocked. */
 export async function mockApi(page: Page, init: Partial<MockState> = {}): Promise<MockState> {
@@ -37,6 +43,9 @@ export async function mockApi(page: Page, init: Partial<MockState> = {}): Promis
     watchlists: init.watchlists ?? [{ name: 'Core', symbols: ['RELIANCE', 'TCS', 'NIFTY50'] }],
     alerts: init.alerts ?? [],
     requests: [],
+    auth: init.auth ?? { authEnabled: true, setupRequired: false, authenticated: true, username: 'trader' },
+    broker: init.broker ?? 'mock',
+    risk: init.risk ?? { ...DEFAULT_RISK },
   }
   // Only the root /ws endpoint: a glob like **/ws/** would also catch Vite's /src/ws/ modules.
   await page.route((url) => url.pathname.startsWith('/ws/') || url.pathname === '/ws', (r) => r.abort())
@@ -49,6 +58,39 @@ export async function mockApi(page: Page, init: Partial<MockState> = {}): Promis
     state.requests.push({ method, path, body })
     const json = (data: unknown, status = 200) => route.fulfill({ status, contentType: 'application/json', body: JSON.stringify(data) })
 
+    if (path === '/auth/status') return json(state.auth)
+    if (path === '/auth/login' || path === '/auth/setup') {
+      if (body.password !== 'correct-horse-1') return json({ error: 'Invalid username or password' }, 401)
+      state.auth = { ...state.auth, setupRequired: false, authenticated: true, username: body.username }
+      return json(state.auth)
+    }
+    if (path === '/auth/logout') {
+      state.auth = { ...state.auth, authenticated: false, username: null }
+      return json(state.auth)
+    }
+    if (state.auth.authEnabled && !state.auth.authenticated) return json({ error: 'Login required' }, 401)
+    const riskState = () => ({ settings: state.risk, broker: state.broker, ordersToday: 0, dayPnl: 0, lossLimitReached: false })
+    if (path === '/risk' && method === 'PUT') { state.risk = body; return json(riskState()) }
+    if (path === '/risk') return json(riskState())
+    if (path === '/risk/kill-switch') {
+      state.risk = { ...state.risk, killSwitch: body.enabled }
+      return json({ state: riskState(), cancelled: body.cancelOpenOrders ? ['o-open'] : [], errors: [] })
+    }
+    if (path === '/trading/orders/preview') {
+      const live = state.broker !== 'mock'
+      const violations = state.risk.killSwitch ? ['Kill switch is ON — only orders that reduce an open position are allowed'] : []
+      const price = body.price ?? 1000
+      return json({ assessment: { broker: state.broker, live, price, estimatedValue: price * body.quantity, reducing: false,
+        ordersToday: 0, dayPnl: 0, violations, warnings: [] },
+        confirmationRequired: live && !violations.length, confirmationToken: violations.length ? null : 'tok-1',
+        expiresAt: new Date(Date.now() + 60_000).toISOString() })
+    }
+    if (path === '/trading/orders' && method === 'POST') {
+      return json({ order_id: 'o-1', symbol: body.symbol, exchange: 'NSE', transaction_type: body.transaction_type,
+        order_type: body.order_type, product: body.product, quantity: body.quantity, price: body.price ?? 0,
+        trigger_price: null, status: 'OPEN', filled_quantity: 0, average_price: 0, timestamp: Date.now(), tag: '' })
+    }
+    if (path === '/trading/orders') return json([])
     if (path === '/instruments') {
       const q = (url.searchParams.get('query') ?? '').toLowerCase()
       return json(INSTRUMENTS.filter((i) => !q || i.symbol.toLowerCase().includes(q) || i.name.toLowerCase().includes(q)))
@@ -66,7 +108,7 @@ export async function mockApi(page: Page, init: Partial<MockState> = {}): Promis
         done: 0, candlesStored: 0, failures: 0, failureSamples: [], skippedReason: null }, trackedSymbols: 3,
         lookbackDays: { '1d': 1825, '1m': 30 } })
     }
-    if (path === '/broker') return json({ active: 'mock', available: ['mock', 'zerodha'] })
+    if (path === '/broker') return json({ active: state.broker, available: ['mock', 'zerodha'] })
     if (path === '/screener/universes') return json([{ code: 'NIFTY50', label: 'NIFTY 50', size: 50 }])
     if (path.startsWith('/ui-state/')) {
       const key = decodeURIComponent(path.slice('/ui-state/'.length))

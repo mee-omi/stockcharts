@@ -43,11 +43,14 @@ public class WebSocketConfig implements WebSocketMessageBrokerConfigurer {
 
     @Override
     public void registerStompEndpoints(StompEndpointRegistry registry) {
+        // Same-origin by default (guards against cross-site WebSocket hijacking); extra origins
+        // come from stockcharts.allowed-origins (e.g. the Vite dev server, which rewrites Host).
+        String[] origins = props.getAllowedOrigins().toArray(String[]::new);
         registry.addEndpoint("/ws")
-                .setAllowedOriginPatterns("*")
+                .setAllowedOrigins(origins)
                 .withSockJS();
         // Also expose a raw WebSocket endpoint (no SockJS) for native clients.
         registry.addEndpoint("/ws")
-                .setAllowedOriginPatterns("*");
+                .setAllowedOrigins(origins);
     }
 }

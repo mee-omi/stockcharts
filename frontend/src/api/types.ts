@@ -550,3 +550,49 @@ export interface PortfolioReport {
   openLots: { symbol: string; quantity: number; averagePrice: number; since: number }[]
   assumptions: string[]
 }
+
+// ---- auth ----
+export interface AuthStatus {
+  authEnabled: boolean
+  setupRequired: boolean
+  authenticated: boolean
+  username: string | null
+}
+
+// ---- risk ----
+export interface RiskSettings {
+  killSwitch: boolean
+  maxQuantityPerOrder: number | null
+  maxOrderValue: number | null
+  maxOrdersPerDay: number | null
+  maxDailyLoss: number | null
+  requireConfirmation: boolean
+  applyToPaper: boolean
+}
+
+export interface RiskState {
+  settings: RiskSettings
+  broker: string
+  ordersToday: number
+  dayPnl: number | null
+  lossLimitReached: boolean
+}
+
+export interface RiskAssessment {
+  broker: string
+  live: boolean
+  price: number | null
+  estimatedValue: number | null
+  reducing: boolean
+  ordersToday: number
+  dayPnl: number | null
+  violations: string[]
+  warnings: string[]
+}
+
+export interface OrderPreview {
+  assessment: RiskAssessment
+  confirmationRequired: boolean
+  confirmationToken: string | null
+  expiresAt: string | null
+}

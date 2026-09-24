@@ -21,6 +21,9 @@ class RateLimitFilterTest {
         assertEquals(RateLimitFilter.Tier.HEAVY, RateLimitFilter.tier("POST", "/api/v1/backtest"));
         assertEquals(RateLimitFilter.Tier.HEAVY, RateLimitFilter.tier("POST", "/api/v1/backtest/scan"));
         assertEquals(RateLimitFilter.Tier.DEFAULT, RateLimitFilter.tier("POST", "/api/v1/screener"));
+        assertEquals(RateLimitFilter.Tier.AUTH, RateLimitFilter.tier("POST", "/api/v1/auth/login"));
+        assertEquals(RateLimitFilter.Tier.AUTH, RateLimitFilter.tier("POST", "/api/v1/auth/setup"));
+        assertEquals(RateLimitFilter.Tier.DEFAULT, RateLimitFilter.tier("GET", "/api/v1/auth/status"));
     }
 
     @Test
