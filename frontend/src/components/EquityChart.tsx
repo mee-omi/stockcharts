@@ -1,5 +1,6 @@
 import { useEffect, useRef } from 'react'
 import { ColorType, createChart, type UTCTimestamp } from 'lightweight-charts'
+import { istChartOptions } from '../lib/ist'
 
 interface Props {
   points: { time: number; value: number }[]
@@ -19,7 +20,8 @@ export default function EquityChart({ points, secondary, secondaryKind = 'drawdo
       layout: { background: { type: ColorType.Solid, color: '#0e1117' }, textColor: '#8b949e' },
       grid: { vertLines: { color: '#161b22' }, horzLines: { color: '#161b22' } },
       rightPriceScale: { borderColor: '#30363d' },
-      timeScale: { borderColor: '#30363d', timeVisible: true },
+      localization: istChartOptions.localization,
+      timeScale: { borderColor: '#30363d', timeVisible: true, ...istChartOptions.timeScale },
       autoSize: true,
     })
     const up = points[points.length - 1].value >= points[0].value

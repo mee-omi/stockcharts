@@ -1,6 +1,7 @@
 package com.stockcharts.candle;
 
 import com.stockcharts.config.AppProperties;
+import com.stockcharts.market.NseCalendar;
 import com.stockcharts.marketdata.MarketDataClient;
 import com.stockcharts.marketdata.dto.CandleDto;
 import org.slf4j.Logger;
@@ -26,11 +27,14 @@ public class CandleService {
     private final MarketDataClient marketData;
     private final CandleRepository repository;
     private final AppProperties props;
+    private final NseCalendar calendar;
 
-    public CandleService(MarketDataClient marketData, CandleRepository repository, AppProperties props) {
+    public CandleService(MarketDataClient marketData, CandleRepository repository, AppProperties props,
+                         NseCalendar calendar) {
         this.marketData = marketData;
         this.repository = repository;
         this.props = props;
+        this.calendar = calendar;
     }
 
     /** Raw entities for a (symbol, timeframe, range), backfilling first if needed. */
@@ -57,6 +61,8 @@ public class CandleService {
      * (from the newest stored bar, which may still be forming, to {@code to}) when stale, and the
      * head (from {@code from} to the oldest stored bar) when history doesn't reach back far enough.
      * Repeat attempts for the same gap are throttled so chart reloads don't hammer broker APIs.
+     * Gaps are judged against the NSE session calendar: nights, weekends and holidays have no
+     * bars, so a chart opened after the close doesn't keep re-fetching the finished session.
      */
     private void ensureCoverage(String symbol, Timeframe tf, Instant from, Instant to) {
         long step = tf.getMillis();
@@ -68,11 +74,13 @@ public class CandleService {
         }
         // Live tick aggregation keeps the newest 1m candle fresh, which would otherwise hide the
         // fact that older history was never fetched — hence the separate head check.
-        if (earliest.get().getOpenTime().isAfter(from.plusMillis(2 * step))
+        Instant firstExpected = calendar.firstExpectedBarStart(tf, from);
+        if (earliest.get().getOpenTime().isAfter(firstExpected.plusMillis(2 * step))
                 && attempt(symbol, tf, "head", HEAD_RETRY)) {
             fetchAndStore(symbol, tf, from, earliest.get().getOpenTime());
         }
-        if (latest.get().getOpenTime().isBefore(to.minusMillis(2 * step))
+        Instant lastExpected = calendar.latestExpectedBarStart(tf, to);
+        if (latest.get().getOpenTime().isBefore(lastExpected.minusMillis(step))
                 && attempt(symbol, tf, "tail", tailRetry(tf))) {
             fetchAndStore(symbol, tf, latest.get().getOpenTime(), to);
         }

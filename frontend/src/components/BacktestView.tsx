@@ -112,8 +112,8 @@ export default function BacktestView({ defaultSymbol, onShowOnChart }: Props) {
     stopLossPct: optionalNumber(stopLoss), takeProfitPct: optionalNumber(takeProfit),
     initialCapital: optionalNumber(capital), positionSizePct: optionalNumber(size),
     commissionPct: optionalNumber(commission), slippagePct: optionalNumber(slippage),
-    from: from ? new Date(from).getTime() : undefined,
-    to: to ? new Date(`${to}T23:59:59`).getTime() : undefined,
+    from: from ? new Date(`${from}T00:00:00+05:30`).getTime() : undefined,
+    to: to ? new Date(`${to}T23:59:59+05:30`).getTime() : undefined,
   })
 
   const runSingle = async (sym: string) => {

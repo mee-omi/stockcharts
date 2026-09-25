@@ -12,6 +12,7 @@ test('chart loads a symbol, switches chart type and saves the layout', async ({ 
   await pickSymbol(page, 'RELIANCE')
   await expect(page.locator('.symbol-label strong')).toHaveText('RELIANCE')
   await expect(page.getByTestId('chart-main').locator('canvas').first()).toBeVisible()
+  await expect(page.locator('.market-chip')).toHaveText('NSE closed · opens Mon 09:15')
 
   await page.getByLabel('Chart type').selectOption('heikin')
   await page.getByRole('button', { name: '5m', exact: true }).click()

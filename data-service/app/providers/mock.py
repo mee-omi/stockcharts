@@ -5,6 +5,12 @@ sine cycles (45 minutes up to a year, with random phases) plus hashed per-minute
 timeframe samples that same curve, so a daily candle agrees with the 1-minute candles inside it,
 quotes and cross-timeframe views are consistent, and live ticks continue the charted history.
 Output is stable across reloads and process restarts (seeds use crc32, not the salted str hash).
+
+Like a real NSE feed, bars exist only in the 09:15–15:30 IST session on trading days: intraday bars
+are anchored at 09:15 (1h bars run 09:15, 10:15 … 15:15, the last one cut short at 15:30), daily
+bars are stamped at IST midnight and span the session, and ticks flow only while the market is
+open. Prices keep moving between sessions, so each day opens with a gap. ``MOCK_ALWAYS_OPEN=true``
+switches to a 24/7 market on the plain UTC grid.
 """
 from __future__ import annotations
 
@@ -13,9 +19,12 @@ import math
 import random
 import time
 import zlib
+from collections.abc import Iterator
+from datetime import datetime, timedelta
 from typing import AsyncIterator
 
 from app.config import settings
+from app.market import IST, SESSION_CLOSE, SESSION_OPEN, is_market_open, is_trading_day, ms_to_ist, to_ms
 from app.models import Candle, Instrument, Tick
 from app.providers.base import MarketDataProvider
 from app.providers.nse_universe import INDICES, NSE_STOCKS
@@ -72,10 +81,47 @@ class _Curve:
         return max(o, c) * (1 + wick), min(o, c) * (1 - wick)
 
 
+def _session_windows(interval: str, frm: int, to: int) -> Iterator[tuple[int, int, int]]:
+    """(timestamp, start, end) of each session bar overlapping [frm, to], in epoch ms.
+
+    Intraday bars are anchored at the session open and the last one ends at the close; a daily bar
+    is stamped at IST midnight and its prices span the session.
+    """
+    step = _INTERVAL_MS.get(interval, _MINUTE_MS)
+    day = ms_to_ist(frm).date()
+    last_day = ms_to_ist(to).date()
+    while day <= last_day:
+        if is_trading_day(day):
+            open_ms = to_ms(datetime.combine(day, SESSION_OPEN, tzinfo=IST))
+            close_ms = to_ms(datetime.combine(day, SESSION_CLOSE, tzinfo=IST))
+            if interval == "day":
+                midnight = to_ms(datetime.combine(day, datetime.min.time(), tzinfo=IST))
+                if midnight <= to and midnight + 24 * 60 * _MINUTE_MS > frm:
+                    yield midnight, open_ms, close_ms
+            else:
+                start = open_ms
+                while start < close_ms and start <= to:
+                    end = min(start + step, close_ms)
+                    if end > frm:
+                        yield start, start, end
+                    start += step
+        day += timedelta(days=1)
+
+
+def _grid_windows(interval: str, frm: int, to: int) -> Iterator[tuple[int, int, int]]:
+    """24/7 bars on the UTC epoch grid (``MOCK_ALWAYS_OPEN``)."""
+    step = _INTERVAL_MS.get(interval, _MINUTE_MS)
+    ts = frm - (frm % step)
+    while ts <= to:
+        yield ts, ts, ts + step
+        ts += step
+
+
 class MockProvider(MarketDataProvider):
     name = "mock"
 
-    def __init__(self) -> None:
+    def __init__(self, always_open: bool | None = None) -> None:
+        self.always_open = settings.mock_always_open if always_open is None else always_open
         self._instruments = [
             Instrument(symbol=s, name=n, instrument_token=t, exchange="NSE")
             for (s, n, t, _seed) in NSE_STOCKS
@@ -103,21 +149,24 @@ class MockProvider(MarketDataProvider):
     async def get_historical(
         self, symbol: str, interval: str, frm: int, to: int
     ) -> list[Candle]:
-        step = _INTERVAL_MS.get(interval, _MINUTE_MS)
         curve = self._curve(symbol)
         is_index = symbol.upper() in self._indices
-        minutes = step // _MINUTE_MS
-        stride = max(1, math.ceil(minutes / _MAX_SAMPLES)) * _MINUTE_MS
+        now = int(time.time() * 1000)
+        windows = _grid_windows if self.always_open else _session_windows
 
         candles: list[Candle] = []
-        ts = frm - (frm % step)  # align to the interval grid
-        while ts <= to:
-            open_ = curve.price(ts)
-            close = curve.price(ts + step)  # = next bar's open, so the series is continuous
+        for ts, start, end in windows(interval, frm, to):
+            if start > now:
+                break  # no future bars
+            end = min(end, max(now, start + _MINUTE_MS))  # the forming bar closes at "now"
+            minutes = max(1, (end - start) // _MINUTE_MS)
+            stride = max(1, math.ceil(minutes / _MAX_SAMPLES)) * _MINUTE_MS
+            open_ = curve.price(start)
+            close = curve.price(end)  # = next bar's open within a session, so the series is continuous
             # High/low come from per-minute ranges sampled across the bar (always including its
             # first and last minute), so a bar's range nests inside the finer bars it spans.
-            last_minute = ts + step - _MINUTE_MS
-            points = list(range(ts, last_minute, stride)) + [last_minute]
+            last_minute = end - _MINUTE_MS
+            points = list(range(start, last_minute, stride)) + [last_minute]
             ranges = [curve.minute_range(t) for t in points]
             high = max(h for h, _ in ranges)
             low = min(lo for _, lo in ranges)
@@ -135,13 +184,15 @@ class MockProvider(MarketDataProvider):
                     volume=volume,
                 )
             )
-            ts += step
         return candles
 
     async def stream_ticks(self, symbols: list[str]) -> AsyncIterator[Tick]:
         syms = [s.upper() for s in symbols]
         rng = random.Random()
         while True:
+            if not self.always_open and not is_market_open():
+                await asyncio.sleep(30)  # like a real feed: silent outside the session
+                continue
             now = int(time.time() * 1000)
             for sym in syms:
                 # Follow the same curve as history, with a little intra-minute jitter.
@@ -153,3 +204,10 @@ class MockProvider(MarketDataProvider):
                     volume=0.0 if sym in self._indices else float(rng.randint(1, 5000)),
                 )
             await asyncio.sleep(settings.tick_interval_seconds)
+
+    def status(self) -> dict:
+        return {
+            "feed": "synthetic",
+            "session": "24/7" if self.always_open else "NSE 09:15-15:30 IST",
+            "market_open": True if self.always_open else is_market_open(),
+        }

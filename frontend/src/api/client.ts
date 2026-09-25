@@ -21,6 +21,7 @@ import type {
   Instrument,
   JournalEntry,
   ManualJournalEntry,
+  MarketStatus,
   PortfolioReport,
   Quote,
   ModifyOrderRequest,
@@ -59,6 +60,11 @@ export function apiErrorMessage(e: any, fallback = 'Request failed'): string {
   const d = e?.response?.data
   if (d && Array.isArray(d.violations) && d.violations.length) return d.violations.join(' · ')
   return d?.error ?? d?.detail ?? e?.message ?? fallback
+}
+
+export async function getMarketStatus(): Promise<MarketStatus> {
+  const { data } = await api.get<MarketStatus>('/market/status')
+  return data
 }
 
 // ---- auth ----

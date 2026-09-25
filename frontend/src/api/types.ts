@@ -596,3 +596,12 @@ export interface OrderPreview {
   confirmationToken: string | null
   expiresAt: string | null
 }
+
+// ---- market session ----
+export interface MarketStatus {
+  open: boolean
+  now: number
+  /** Epoch ms of today's close when open, else of the next open. */
+  nextChange: number
+  timezone: string
+}

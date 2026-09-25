@@ -29,6 +29,8 @@ stockcharts:
   live-symbols: ${LIVE_SYMBOLS:RELIANCE,TCS,HDFCBANK,INFY,ICICIBANK}
   # Auto-backfill this many days of 1m history on first request for a symbol.
   backfill-days: ${BACKFILL_DAYS:5}
+  # NSE exchange holidays (YYYY-MM-DD, comma-separated): no bars are expected on these days.
+  nse-holidays: ${NSE_HOLIDAYS:}
   # Max wait for data-service responses (chunked broker history downloads can take minutes).
   data-service-timeout: ${DATA_SERVICE_TIMEOUT:PT3M}
   # Periodic download of broker history into the candle store (incremental).

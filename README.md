@@ -95,6 +95,8 @@ Copy `.env.example` to `.env`. Key settings:
 | `DATA_SERVICE_URL` | `http://localhost:8000` | Where the backend reaches the data service |
 | `POSTGRES_*` | `stockcharts` | DB host/port/name/user/password |
 | `TRADING_BROKER` | `mock` | `mock` (paper), `zerodha`, `angelone` (credentials in `.env.example`) |
+| `NSE_HOLIDAYS` | _(empty)_ | Exchange holidays (YYYY-MM-DD, comma-separated): no bars expected, feeds stay idle |
+| `MOCK_ALWAYS_OPEN` | `false` | The mock market follows the NSE session (09:15–15:30 IST); `true` = 24/7 |
 | `LIVE_SYMBOLS` | 5 large caps | Always streamed; any symbol a client opens is added automatically (cap `LIVE_MAX_SYMBOLS`, 100) |
 | `TELEGRAM_BOT_TOKEN` / `TELEGRAM_CHAT_ID` | _(empty)_ | Deliver fired alerts to Telegram |
 | `ALERTS_WEBHOOK_URL` | _(empty)_ | POST every fired alert as JSON to this URL |
