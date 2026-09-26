@@ -28,3 +28,7 @@ stockcharts:
   auth:
     # Feature tests exercise the API directly; AuthIntegrationTest turns login on.
     enabled: false
+  paper:
+    # PaperBrokerIntegrationTest drives the session and fill checks explicitly.
+    session-cron: "-"
+    poll-interval: PT1H

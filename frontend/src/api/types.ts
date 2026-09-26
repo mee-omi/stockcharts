@@ -175,7 +175,7 @@ export type Timeframe = (typeof TIMEFRAMES)[number]
 export type OrderType = 'MARKET' | 'LIMIT' | 'SL' | 'SL-M'
 export type TransactionType = 'BUY' | 'SELL'
 export type ProductType = 'CNC' | 'MIS' | 'NRML'
-export type OrderStatus = 'PENDING' | 'OPEN' | 'COMPLETE' | 'CANCELLED' | 'REJECTED'
+export type OrderStatus = 'PENDING' | 'OPEN' | 'TRIGGER_PENDING' | 'COMPLETE' | 'CANCELLED' | 'REJECTED'
 
 export interface PlaceOrderRequest {
   symbol: string
@@ -604,4 +604,23 @@ export interface MarketStatus {
   /** Epoch ms of today's close when open, else of the next open. */
   nextChange: number
   timezone: string
+}
+
+// ---- paper trading ----
+export interface PaperAccount {
+  startingCash: number
+  cash: number
+  realizedToday: number
+  chargesToday: number
+  tradingDay: string
+  slippagePct: number
+  misLeverage: number
+  squareOffTime: string
+  marketHoursOnly: boolean
+  marketOpen: boolean
+}
+
+export interface PaperEvent {
+  type: 'fill' | 'cancelled' | 'rejected' | 'reset'
+  order: Order | null
 }

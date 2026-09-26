@@ -87,6 +87,16 @@ public class JournalService {
         return added;
     }
 
+    /** Paper orders can fill long after they were placed; record those fills as they happen. */
+    @org.springframework.context.event.EventListener
+    public void onPaperFill(com.stockcharts.paper.PaperFillEvent event) {
+        try {
+            recordIfFilled(event.order(), com.stockcharts.paper.PaperBroker.BROKER, event.tag(), JournalEntry.Source.APP);
+        } catch (Exception e) {
+            log.warn("Could not journal paper fill {}: {}", event.order().orderId(), e.getMessage());
+        }
+    }
+
     public String activeBroker() {
         try {
             var info = trading.getBroker();

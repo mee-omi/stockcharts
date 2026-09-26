@@ -7,19 +7,24 @@ import {
   getHoldings,
   getOrders,
   getPositions,
+  getPaperAccount,
   getRiskState,
+  getTradingBroker,
   placeOrder,
   previewOrder,
+  resetPaperAccount,
   setKillSwitch,
   updateRiskSettings,
 } from '../api/client'
 import { searchInstruments } from '../api/client'
+import { subscribePaper } from '../ws/stomp'
 import type {
   Funds,
   Holding,
   Order,
   OrderPreview,
   OrderType,
+  PaperAccount,
   PlaceOrderRequest,
   Position,
   Positions,
@@ -137,7 +142,9 @@ function OrderForm({
     setBusy(true)
     try {
       const order = await placeOrder(req, token)
-      setStatus({ ok: true, msg: `${order.status} — ${order.order_id}` })
+      const detail = order.message ? ` · ${order.message}` : ''
+      setStatus({ ok: order.status !== 'REJECTED', msg: `${order.status} — ${order.order_id}${detail}` })
+      if (order.status === 'REJECTED') return
       // Build the chart marker — use replay bar time if in replay mode.
       const markerTime = replayMode && replayBarTime
         ? replayBarTime
@@ -427,7 +434,7 @@ function OrderBook({ refresh }: { refresh: number }) {
                 {o.message && <div className="order-msg">{o.message}</div>}
               </td>
               <td>
-                {o.status === 'OPEN' && (
+                {(o.status === 'OPEN' || o.status === 'TRIGGER_PENDING') && (
                   <button className="cancel-btn" onClick={() => cancel(o.order_id)}>✕</button>
                 )}
               </td>
@@ -439,14 +446,15 @@ function OrderBook({ refresh }: { refresh: number }) {
   )
 }
 
-function PositionsTab() {
+function PositionsTab({ refresh }: { refresh: number }) {
   const [positions, setPositions] = useState<Positions | null>(null)
   const [loading, setLoading] = useState(false)
 
   useEffect(() => {
-    setLoading(true)
+    setLoading((l) => l || positions === null)
     getPositions().then(setPositions).catch(() => {}).finally(() => setLoading(false))
-  }, [])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [refresh])
 
   if (loading) return <div className="trade-empty">Loading positions…</div>
   const net = positions?.net ?? []
@@ -479,16 +487,17 @@ function PositionsTab() {
   )
 }
 
-function HoldingsTab() {
-  const [holdings, setHoldings] = useState<Holding[]>([])
+function HoldingsTab({ refresh }: { refresh: number }) {
+  const [holdings, setHoldings] = useState<Holding[] | null>(null)
   const [loading, setLoading] = useState(false)
 
   useEffect(() => {
-    setLoading(true)
-    getHoldings().then(setHoldings).catch(() => {}).finally(() => setLoading(false))
-  }, [])
+    setLoading((l) => l || holdings === null)
+    getHoldings().then(setHoldings).catch(() => setHoldings([])).finally(() => setLoading(false))
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [refresh])
 
-  if (loading) return <div className="trade-empty">Loading holdings…</div>
+  if (loading || holdings === null) return <div className="trade-empty">Loading holdings…</div>
   if (!holdings.length) return <div className="trade-empty">No holdings.</div>
 
   return (
@@ -519,19 +528,77 @@ function HoldingsTab() {
   )
 }
 
-function FundsTab() {
+/** The simulated account's settings, today's result and a reset. */
+function PaperAccountCard({ refresh, onReset }: { refresh: number; onReset: () => void }) {
+  const [acct, setAcct] = useState<PaperAccount | null>(null)
+  const [cash, setCash] = useState('')
+  const [msg, setMsg] = useState<string | null>(null)
+
+  useEffect(() => { getPaperAccount().then(setAcct).catch(() => {}) }, [refresh])
+
+  const reset = async () => {
+    const amount = cash.trim() ? Number(cash) : acct?.startingCash
+    if (!window.confirm(`Reset the paper account to ₹${fmt(amount ?? 0)}? All paper orders, positions and holdings are deleted.`)) return
+    try {
+      setAcct(await resetPaperAccount(amount))
+      setCash('')
+      setMsg('Paper account reset')
+      onReset()
+    } catch (e) {
+      setMsg(apiErrorMessage(e, 'Reset failed'))
+    }
+  }
+
+  if (!acct) return null
+  return (
+    <div className="paper-card">
+      <div className="paper-head">
+        <strong>Paper trading</strong>
+        <span className={`paper-market ${acct.marketOpen ? 'open' : ''}`}>
+          {acct.marketOpen ? 'fills live' : 'market closed · orders queue for the open'}
+        </span>
+      </div>
+      <div className="paper-stats">
+        <span>Started with <strong>₹{fmt(acct.startingCash)}</strong></span>
+        <span>Realised today <strong className={pnlClass(acct.realizedToday)}>₹{fmt(acct.realizedToday)}</strong></span>
+        <span>Charges today <strong>₹{fmt(acct.chargesToday)}</strong></span>
+      </div>
+      <div className="paper-rules">
+        Market fills at the live price ± {acct.slippagePct}% slippage · brokerage &amp; taxes charged ·
+        MIS {acct.misLeverage}× leverage, squared off at {acct.squareOffTime} IST · CNC buys become holdings next day
+      </div>
+      <div className="paper-reset">
+        <input className="of-input" type="number" min="1" placeholder={`Starting cash (₹${fmt(acct.startingCash)})`}
+               value={cash} onChange={(e) => setCash(e.target.value)} />
+        <button className="panel-btn" onClick={reset}>Reset paper account</button>
+        {msg && <span className="ci-status ok">{msg}</span>}
+      </div>
+    </div>
+  )
+}
+
+function FundsTab({ refresh }: { refresh: number }) {
   const [funds, setFunds] = useState<Funds | null>(null)
   const [loading, setLoading] = useState(false)
+  const [paper, setPaper] = useState(false)
+
+  const load = useCallback(() => {
+    getFunds().then(setFunds).catch(() => {}).finally(() => setLoading(false))
+    getTradingBroker().then((b) => setPaper(b.active === 'mock')).catch(() => {})
+  }, [])
 
   useEffect(() => {
-    setLoading(true)
-    getFunds().then(setFunds).catch(() => {}).finally(() => setLoading(false))
-  }, [])
+    setLoading((l) => l || funds === null)
+    load()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [load, refresh])
 
   if (loading) return <div className="trade-empty">Loading funds…</div>
   if (!funds) return <div className="trade-empty">No fund data.</div>
 
   return (
+    <>
+    {paper && <PaperAccountCard refresh={refresh} onReset={load} />}
     <div className="funds-grid">
       <div className="funds-card">
         <div className="funds-label">Available Cash</div>
@@ -550,6 +617,7 @@ function FundsTab() {
         <div className="funds-value total">₹{fmt(funds.total_balance)}</div>
       </div>
     </div>
+    </>
   )
 }
 
@@ -711,6 +779,9 @@ export default function TradingPanel({
   const [tab, setTab] = useState<TradingTab>('order')
   const [orderRefresh, setOrderRefresh] = useState(0)
 
+  // Paper orders fill on ticks, long after they were placed: refresh the lists when they do.
+  useEffect(() => subscribePaper(() => setOrderRefresh((n) => n + 1)), [])
+
   const handleOrderPlaced = (marker: TradeMarker) => {
     setOrderRefresh((n) => n + 1)
     onTradeMarker?.(marker)
@@ -760,9 +831,9 @@ export default function TradingPanel({
           />
         )}
         {tab === 'orders' && <OrderBook refresh={orderRefresh} />}
-        {tab === 'positions' && <PositionsTab />}
-        {tab === 'holdings' && <HoldingsTab />}
-        {tab === 'funds' && <FundsTab />}
+        {tab === 'positions' && <PositionsTab refresh={orderRefresh} />}
+        {tab === 'holdings' && <HoldingsTab refresh={orderRefresh} />}
+        {tab === 'funds' && <FundsTab refresh={orderRefresh} />}
         {tab === 'risk' && <RiskTab />}
       </div>
     </div>

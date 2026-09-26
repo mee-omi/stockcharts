@@ -186,3 +186,21 @@ test('kill switch from the risk tab blocks new orders', async ({ page }) => {
   await page.getByRole('button', { name: 'BUY TCS' }).click()
   await expect(page.locator('.ci-status.err')).toContainText('Kill switch is ON')
 })
+
+test('paper account shows the simulation rules and can be reset', async ({ page }) => {
+  const api = await mockApi(page)
+  await page.goto('/')
+  await page.getByRole('button', { name: 'Trade', exact: true }).click()
+  await page.getByRole('button', { name: 'Funds', exact: true }).click()
+  const card = page.locator('.paper-card')
+  await expect(card).toContainText('Paper trading')
+  await expect(card).toContainText('squared off at 15:20 IST')
+  await expect(card).toContainText('market closed · orders queue for the open')
+
+  await card.getByPlaceholder(/Starting cash/).fill('500000')
+  page.once('dialog', (d) => d.accept())
+  await card.getByRole('button', { name: 'Reset paper account' }).click()
+  await expect(card).toContainText('Paper account reset')
+  expect(api.paperCash).toBe(500000)
+  await expect(page.locator('.funds-grid')).toContainText('5,00,000')
+})

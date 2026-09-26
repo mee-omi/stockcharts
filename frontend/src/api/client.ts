@@ -27,6 +27,7 @@ import type {
   ModifyOrderRequest,
   Order,
   OrderPreview,
+  PaperAccount,
   PlaceOrderRequest,
   RiskSettings,
   RiskState,
@@ -64,6 +65,17 @@ export function apiErrorMessage(e: any, fallback = 'Request failed'): string {
 
 export async function getMarketStatus(): Promise<MarketStatus> {
   const { data } = await api.get<MarketStatus>('/market/status')
+  return data
+}
+
+// ---- paper trading ----
+export async function getPaperAccount(): Promise<PaperAccount> {
+  const { data } = await api.get<PaperAccount>('/paper')
+  return data
+}
+
+export async function resetPaperAccount(startingCash?: number): Promise<PaperAccount> {
+  const { data } = await api.post<PaperAccount>('/paper/reset', { startingCash })
   return data
 }
 

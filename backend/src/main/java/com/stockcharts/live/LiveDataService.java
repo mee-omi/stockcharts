@@ -9,6 +9,7 @@ import jakarta.annotation.PreDestroy;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.boot.context.event.ApplicationReadyEvent;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.context.event.EventListener;
 import org.springframework.messaging.simp.SimpMessagingTemplate;
 import org.springframework.stereotype.Service;
@@ -47,6 +48,8 @@ public class LiveDataService {
     private final SimpMessagingTemplate messaging;
     private final AppProperties props;
     private final InstrumentService instruments;
+    private final LastPrices lastPrices;
+    private final ApplicationEventPublisher events;
     private final Counter tickCounter;
 
     private final Set<String> dynamicSymbols = ConcurrentHashMap.newKeySet();
@@ -61,12 +64,15 @@ public class LiveDataService {
 
     public LiveDataService(MarketDataClient marketData, TickAggregator aggregator,
                            SimpMessagingTemplate messaging, AppProperties props,
-                           InstrumentService instruments, MeterRegistry meters) {
+                           InstrumentService instruments, MeterRegistry meters, LastPrices lastPrices,
+                           ApplicationEventPublisher events) {
         this.marketData = marketData;
         this.aggregator = aggregator;
         this.messaging = messaging;
         this.props = props;
         this.instruments = instruments;
+        this.lastPrices = lastPrices;
+        this.events = events;
         this.tickCounter = Counter.builder("stockcharts.live.ticks")
                 .description("Live ticks received from the data service").register(meters);
     }
@@ -142,6 +148,10 @@ public class LiveDataService {
         try {
             LiveUpdate update = aggregator.onTick(tick);
             messaging.convertAndSend("/topic/ticks/" + update.symbol(), update);
+            PriceTick price = new PriceTick(update.symbol(), tick.ltp(),
+                    tick.timestamp() > 0 ? tick.timestamp() : System.currentTimeMillis());
+            lastPrices.update(price);
+            events.publishEvent(price);
         } catch (Exception e) {
             log.debug("Failed to process tick for {}: {}", tick.symbol(), e.getMessage());
         }

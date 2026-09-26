@@ -29,6 +29,13 @@ stockcharts:
   live-symbols: ${LIVE_SYMBOLS:RELIANCE,TCS,HDFCBANK,INFY,ICICIBANK}
   # Auto-backfill this many days of 1m history on first request for a symbol.
   backfill-days: ${BACKFILL_DAYS:5}
+  paper:
+    starting-cash: ${PAPER_STARTING_CASH:1000000}
+    slippage-pct: ${PAPER_SLIPPAGE_PCT:0.05}
+    mis-leverage: ${PAPER_MIS_LEVERAGE:5}
+    square-off-time: ${PAPER_SQUARE_OFF_TIME:15:20}
+    # false = fill around the clock (pair with MOCK_ALWAYS_OPEN=true on the data service)
+    market-hours-only: ${PAPER_MARKET_HOURS_ONLY:true}
   # NSE exchange holidays (YYYY-MM-DD, comma-separated): no bars are expected on these days.
   nse-holidays: ${NSE_HOLIDAYS:}
   # Max wait for data-service responses (chunked broker history downloads can take minutes).

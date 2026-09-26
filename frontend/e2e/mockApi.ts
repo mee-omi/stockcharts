@@ -31,6 +31,7 @@ export interface MockState {
   auth: { authEnabled: boolean; setupRequired: boolean; authenticated: boolean; username: string | null }
   broker: string
   risk: any
+  paperCash: number
 }
 
 const DEFAULT_RISK = { killSwitch: false, maxQuantityPerOrder: 1000, maxOrderValue: 200000, maxOrdersPerDay: 50,
@@ -46,6 +47,7 @@ export async function mockApi(page: Page, init: Partial<MockState> = {}): Promis
     auth: init.auth ?? { authEnabled: true, setupRequired: false, authenticated: true, username: 'trader' },
     broker: init.broker ?? 'mock',
     risk: init.risk ?? { ...DEFAULT_RISK },
+    paperCash: init.paperCash ?? 1_000_000,
   }
   // Only the root /ws endpoint: a glob like **/ws/** would also catch Vite's /src/ws/ modules.
   await page.route((url) => url.pathname.startsWith('/ws/') || url.pathname === '/ws', (r) => r.abort())
@@ -91,6 +93,13 @@ export async function mockApi(page: Page, init: Partial<MockState> = {}): Promis
         trigger_price: null, status: 'OPEN', filled_quantity: 0, average_price: 0, timestamp: Date.now(), tag: '' })
     }
     if (path === '/trading/orders') return json([])
+    if (path === '/trading/funds') {
+      return json({ available_cash: state.paperCash, used_margin: 0, available_margin: state.paperCash, total_balance: state.paperCash })
+    }
+    const paperAccount = () => ({ startingCash: state.paperCash, cash: state.paperCash, realizedToday: 0, chargesToday: 0,
+      tradingDay: '2026-09-25', slippagePct: 0.05, misLeverage: 5, squareOffTime: '15:20', marketHoursOnly: true, marketOpen: false })
+    if (path === '/paper/reset') { state.paperCash = body?.startingCash ?? 1_000_000; return json(paperAccount()) }
+    if (path === '/paper') return json(paperAccount())
     if (path === '/market/status') {
       return json({ open: false, now: Date.parse('2026-09-25T18:00:00+05:30'),
         nextChange: Date.parse('2026-09-28T09:15:00+05:30'), timezone: 'Asia/Kolkata' })

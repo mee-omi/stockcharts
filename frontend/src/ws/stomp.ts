@@ -1,6 +1,6 @@
 import { Client, type IMessage, type StompSubscription } from '@stomp/stompjs'
 import SockJS from 'sockjs-client'
-import type { AlertEvent, LiveUpdate } from '../api/types'
+import type { AlertEvent, LiveUpdate, PaperEvent } from '../api/types'
 
 /**
  * Single shared STOMP connection (over SockJS for mobile-network resilience).
@@ -62,4 +62,9 @@ export function subscribeTicks(symbol: string, onTick: (u: LiveUpdate) => void):
 /** Fired alerts, broadcast to every connected client. */
 export function subscribeAlerts(onAlert: (e: AlertEvent) => void): () => void {
   return subscribeTopic<AlertEvent>('/topic/alerts', onAlert)
+}
+
+/** Paper-trading order updates (fills of pending orders, cancellations, resets). */
+export function subscribePaper(onEvent: (e: PaperEvent) => void): () => void {
+  return subscribeTopic<PaperEvent>('/topic/paper', onEvent)
 }

@@ -697,3 +697,14 @@ html, body, #root {
 .market-chip.open .market-dot { background: #26a69a; box-shadow: 0 0 6px #26a69a; }
 .symbol-label .market-chip { margin-left: 10px; }
 .user-menu-name { padding: 4px 8px 6px; font-size: 12px; color: var(--muted); border-bottom: 1px solid var(--border); }
+
+/* Paper trading account */
+.paper-card { border: 1px solid var(--border); border-radius: 8px; padding: 12px; margin-bottom: 12px; display: flex; flex-direction: column; gap: 8px; }
+.paper-head { display: flex; justify-content: space-between; align-items: center; gap: 8px; flex-wrap: wrap; }
+.paper-market { font-size: 12px; color: var(--muted); }
+.paper-market.open { color: #26a69a; }
+.paper-stats { display: flex; gap: 16px; flex-wrap: wrap; font-size: 13px; color: var(--muted); }
+.paper-stats strong { color: var(--text); }
+.paper-rules { font-size: 12px; color: var(--muted); }
+.paper-reset { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.paper-reset .of-input { max-width: 220px; }
