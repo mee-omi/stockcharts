@@ -32,3 +32,6 @@ stockcharts:
     # PaperBrokerIntegrationTest drives the session and fill checks explicitly.
     session-cron: "-"
     poll-interval: PT1H
+  scan-schedules:
+    # ScanScheduleIntegrationTest calls runDue() itself.
+    poll-interval: PT1H

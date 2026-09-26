@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { apiError, listUniverses, listWatchlists, runBacktest, runBacktestScan } from '../api/client'
+import { apiError, createScanSchedule, listUniverses, listWatchlists, runBacktest, runBacktestScan } from '../api/client'
 import {
   TIMEFRAMES,
   type BacktestDirection,
@@ -17,6 +17,7 @@ import {
 import { inr, istDate, istDateTime, num, pct, signClass } from '../lib/format'
 import EquityChart from './EquityChart'
 import StockSearch from './StockSearch'
+import ScanSchedules from './ScanSchedules'
 
 const PRESETS: { label: string; entry: string; exit: string; direction: BacktestDirection }[] = [
   { label: 'EMA 9/21 crossover', entry: 'crossover(ema(close, 9), ema(close, 21))',
@@ -60,7 +61,9 @@ export function signalLabel(signal: SignalState, direction: BacktestDirection, o
   }
 }
 
-type Mode = 'single' | 'scan'
+type Mode = 'single' | 'scan' | 'schedules'
+
+const SCHEDULE_INTERVALS = [5, 15, 30, 60]
 
 export default function BacktestView({ defaultSymbol, onShowOnChart }: Props) {
   const [mode, setMode] = useState<Mode>('single')
@@ -93,6 +96,14 @@ export default function BacktestView({ defaultSymbol, onShowOnChart }: Props) {
   const [autoMinutes, setAutoMinutes] = useState(0)
   const [scan, setScan] = useState<BacktestScanResult | null>(null)
   const [scanDirection, setScanDirection] = useState<BacktestDirection>('LONG')
+  const [schedName, setSchedName] = useState('')
+  const [schedMode, setSchedMode] = useState<'times' | 'interval'>('times')
+  const [schedTimes, setSchedTimes] = useState('15:35')
+  const [schedInterval, setSchedInterval] = useState(15)
+  const [schedOnlyNew, setSchedOnlyNew] = useState(true)
+  const [schedTopN, setSchedTopN] = useState('10')
+  const [schedMsg, setSchedMsg] = useState<{ ok: boolean; text: string } | null>(null)
+  const [schedRefresh, setSchedRefresh] = useState(0)
 
   useEffect(() => {
     listUniverses().then(setIndices).catch(() => {})
@@ -130,21 +141,44 @@ export default function BacktestView({ defaultSymbol, onShowOnChart }: Props) {
     }
   }
 
+  const scanRequest = () => ({
+    universe: { type: universeType, value: universeType === 'all' ? undefined : universeValue },
+    strategy: strategy(),
+    sortBy,
+    minTrades: optionalNumber(minTrades),
+    minWinRatePct: optionalNumber(minWinRate),
+    minProfitFactor: optionalNumber(minPf),
+    onlySignals,
+    limit: 200,
+  })
+
+  const saveSchedule = async () => {
+    if (universeType !== 'all' && !universeValue.trim()) return setSchedMsg({ ok: false, text: 'Choose a universe' })
+    if (!schedName.trim()) return setSchedMsg({ ok: false, text: 'Give the schedule a name' })
+    try {
+      await createScanSchedule({
+        name: schedName.trim(),
+        scan: scanRequest(),
+        ...(schedMode === 'times' ? { times: schedTimes } : { intervalMinutes: schedInterval }),
+        onlyNew: schedOnlyNew,
+        topN: optionalNumber(schedTopN),
+        notify: true,
+      })
+      setSchedMsg({ ok: true, text: 'Scheduled' })
+      setSchedName('')
+      setSchedRefresh((n) => n + 1)
+      setMode('schedules')
+    } catch (e) {
+      setSchedMsg({ ok: false, text: apiError(e, 'Could not save the schedule') })
+    }
+  }
+
   const runScan = async () => {
     if (universeType !== 'all' && !universeValue.trim()) return setError('Choose a universe')
     setBusy(true)
     setError(null)
     try {
-      setScan(await runBacktestScan({
-        universe: { type: universeType, value: universeType === 'all' ? undefined : universeValue },
-        strategy: strategy(),
-        sortBy,
-        minTrades: optionalNumber(minTrades),
-        minWinRatePct: optionalNumber(minWinRate),
-        minProfitFactor: optionalNumber(minPf),
-        onlySignals,
-        limit: 200,
-      }))
+      setScan(await runBacktestScan(scanRequest()))
       setScanDirection(direction)
     } catch (e) {
       setError(apiError(e, 'Scan failed'))
@@ -190,9 +224,13 @@ export default function BacktestView({ defaultSymbol, onShowOnChart }: Props) {
                 onClick={() => setMode('single')}>Single symbol</button>
         <button role="tab" aria-selected={mode === 'scan'} className={`trade-tab ${mode === 'scan' ? 'active' : ''}`}
                 onClick={() => setMode('scan')}>Scan universe</button>
+        <button role="tab" aria-selected={mode === 'schedules'} className={`trade-tab ${mode === 'schedules' ? 'active' : ''}`}
+                onClick={() => setMode('schedules')}>Scheduled</button>
       </div>
 
-      <section className="card">
+      {mode === 'schedules' && <ScanSchedules refresh={schedRefresh} onOpenSymbol={openFromScan} />}
+
+      <section className="card" hidden={mode === 'schedules'}>
         <h3>Strategy</h3>
         <div className="form-grid">
           {mode === 'single' ? (
@@ -306,6 +344,39 @@ export default function BacktestView({ defaultSymbol, onShowOnChart }: Props) {
           {error && <span className="err">{error}</span>}
           {!from && <span className="muted small">Default range: 3y (1d), 180d (1h), 10d (1m), 30d otherwise.</span>}
         </div>
+        {mode === 'scan' && (
+          <details className="schedule-form">
+            <summary>Schedule this scan (runs on the latest data and notifies you)</summary>
+            <div className="form-grid">
+              <label>Name<input value={schedName} onChange={(e) => setSchedName(e.target.value)} placeholder="e.g. EMA cross NIFTY 50" /></label>
+              <label>Run
+                <select value={schedMode} onChange={(e) => setSchedMode(e.target.value as 'times' | 'interval')} aria-label="Run">
+                  <option value="times">at set times (IST, trading days)</option>
+                  <option value="interval">every few minutes during market hours</option>
+                </select>
+              </label>
+              {schedMode === 'times' ? (
+                <label>Times (IST)<input value={schedTimes} onChange={(e) => setSchedTimes(e.target.value)} placeholder="09:30, 15:35" /></label>
+              ) : (
+                <label>Every
+                  <select value={schedInterval} onChange={(e) => setSchedInterval(Number(e.target.value))} aria-label="Every">
+                    {SCHEDULE_INTERVALS.map((n) => <option key={n} value={n}>{n} min</option>)}
+                  </select>
+                </label>
+              )}
+              <label>Notify top<input type="number" min="1" max="50" value={schedTopN} onChange={(e) => setSchedTopN(e.target.value)} /></label>
+              <label className="check">
+                <input type="checkbox" checked={schedOnlyNew} onChange={(e) => setSchedOnlyNew(e.target.checked)} />
+                Only notify stocks that weren't in the previous run
+              </label>
+            </div>
+            <div className="form-actions">
+              <button className="run-btn" onClick={saveSchedule}>Save schedule</button>
+              {schedMsg && <span className={schedMsg.ok ? 'muted small' : 'err'}>{schedMsg.text}</span>}
+              <span className="muted small">Notifications go in-app, and to Telegram / the webhook when configured.</span>
+            </div>
+          </details>
+        )}
       </section>
 
       {mode === 'scan' && scan && (

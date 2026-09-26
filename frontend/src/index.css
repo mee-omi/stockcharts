@@ -708,3 +708,19 @@ html, body, #root {
 .paper-rules { font-size: 12px; color: var(--muted); }
 .paper-reset { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
 .paper-reset .of-input { max-width: 220px; }
+
+/* Scheduled scans */
+.schedule-form { margin-top: 12px; padding-top: 12px; border-top: 1px dashed var(--border); }
+.schedule-form summary { cursor: pointer; color: var(--accent); font-size: 14px; margin-bottom: 10px; }
+.schedule-row { border: 1px solid var(--border); border-radius: 8px; padding: 10px 12px; margin-top: 10px; }
+.schedule-row.paused { opacity: .65; }
+.schedule-main { display: flex; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+.schedule-main .small { margin-top: 3px; }
+.schedule-actions { display: flex; gap: 6px; align-items: flex-start; flex-wrap: wrap; }
+.schedule-history { margin-top: 10px; display: flex; flex-direction: column; gap: 6px; }
+.schedule-history summary { cursor: pointer; font-size: 13px; }
+.scan-run-table { margin-top: 6px; }
+.new-badge { margin-left: 6px; background: #26a69a22; color: #26a69a; }
+.linklike { background: none; border: none; color: var(--text); font-weight: 600; cursor: pointer; padding: 0; }
+.linklike:hover { color: var(--accent); }
+.scan-toast strong { display: block; padding-right: 18px; }

@@ -28,6 +28,9 @@ import type {
   Order,
   OrderPreview,
   PaperAccount,
+  ScanRun,
+  ScanSchedule,
+  ScanScheduleRequest,
   PlaceOrderRequest,
   RiskSettings,
   RiskState,
@@ -65,6 +68,36 @@ export function apiErrorMessage(e: any, fallback = 'Request failed'): string {
 
 export async function getMarketStatus(): Promise<MarketStatus> {
   const { data } = await api.get<MarketStatus>('/market/status')
+  return data
+}
+
+// ---- scheduled scans ----
+export async function listScanSchedules(): Promise<ScanSchedule[]> {
+  const { data } = await api.get<ScanSchedule[]>('/scan-schedules')
+  return data
+}
+
+export async function createScanSchedule(req: ScanScheduleRequest): Promise<ScanSchedule> {
+  const { data } = await api.post<ScanSchedule>('/scan-schedules', req)
+  return data
+}
+
+export async function updateScanSchedule(id: number, req: ScanScheduleRequest): Promise<ScanSchedule> {
+  const { data } = await api.put<ScanSchedule>(`/scan-schedules/${id}`, req)
+  return data
+}
+
+export async function deleteScanSchedule(id: number): Promise<void> {
+  await api.delete(`/scan-schedules/${id}`)
+}
+
+export async function runScanScheduleNow(id: number): Promise<ScanRun> {
+  const { data } = await api.post<ScanRun>(`/scan-schedules/${id}/run`, undefined, { timeout: 300_000 })
+  return data
+}
+
+export async function getScanRuns(id: number): Promise<ScanRun[]> {
+  const { data } = await api.get<ScanRun[]>(`/scan-schedules/${id}/runs`)
   return data
 }
 

@@ -624,3 +624,59 @@ export interface PaperEvent {
   type: 'fill' | 'cancelled' | 'rejected' | 'reset'
   order: Order | null
 }
+
+// ---- scheduled scans ----
+export interface ScanRunRow {
+  symbol: string
+  name: string
+  signal: SignalState
+  close: number
+  totalReturnPct: number
+  winRatePct: number
+  trades: number
+  profitFactor: number | null
+  isNew: boolean
+}
+
+export interface ScanRun {
+  id: number
+  scheduleId: number
+  scheduleName: string
+  startedAt: number
+  durationMs: number
+  status: 'OK' | 'FAILED'
+  matched: number
+  newMatches: number
+  rows: ScanRunRow[]
+  message: string | null
+}
+
+export interface ScanScheduleRequest {
+  name?: string
+  scan?: BacktestScanRequest
+  /** IST times "HH:mm", comma-separated; or intervalMinutes during market hours. */
+  times?: string
+  intervalMinutes?: number
+  tradingDaysOnly?: boolean
+  onlyNew?: boolean
+  topN?: number
+  notify?: boolean
+  enabled?: boolean
+}
+
+export interface ScanSchedule {
+  id: number
+  name: string
+  scan: BacktestScanRequest
+  times: string | null
+  intervalMinutes: number | null
+  tradingDaysOnly: boolean
+  onlyNew: boolean
+  topN: number
+  notify: boolean
+  enabled: boolean
+  description: string
+  nextRunAt: number | null
+  lastRunAt: number | null
+  lastRun: ScanRun | null
+}

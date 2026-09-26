@@ -1,9 +1,9 @@
 package com.stockcharts.paper;
 
+import com.stockcharts.TestClock;
 import com.stockcharts.journal.JournalRepository;
 import com.stockcharts.live.LiveDataService;
 import com.stockcharts.live.PriceTick;
-import com.stockcharts.market.NseCalendar;
 import com.stockcharts.marketdata.MarketDataClient;
 import com.stockcharts.quote.PriceSource;
 import com.stockcharts.trading.RemoteTradingClient;
@@ -18,16 +18,10 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
-import org.springframework.boot.test.context.TestConfiguration;
 import org.springframework.boot.test.mock.mockito.MockBean;
-import org.springframework.context.annotation.Bean;
-import org.springframework.context.annotation.Primary;
+import org.springframework.context.annotation.Import;
 import org.springframework.test.context.ActiveProfiles;
 
-import java.time.Clock;
-import java.time.Instant;
-import java.time.LocalDateTime;
-import java.time.ZoneId;
 import java.util.List;
 import java.util.OptionalDouble;
 
@@ -41,40 +35,8 @@ import static org.mockito.Mockito.when;
 
 @SpringBootTest
 @ActiveProfiles("test")
+@Import(TestClock.Config.class)
 class PaperBrokerIntegrationTest {
-
-    /** A clock the test moves by hand. */
-    static class TestClock extends Clock {
-        volatile Instant now = Instant.now();
-
-        @Override
-        public ZoneId getZone() {
-            return ZoneId.of("UTC");
-        }
-
-        @Override
-        public Clock withZone(ZoneId zone) {
-            return this;
-        }
-
-        @Override
-        public Instant instant() {
-            return now;
-        }
-
-        void setIst(String dateTime) {
-            now = LocalDateTime.parse(dateTime).atZone(NseCalendar.IST).toInstant();
-        }
-    }
-
-    @TestConfiguration
-    static class ClockConfig {
-        @Bean
-        @Primary
-        TestClock testClock() {
-            return new TestClock();
-        }
-    }
 
     @Autowired
     TestClock clock;

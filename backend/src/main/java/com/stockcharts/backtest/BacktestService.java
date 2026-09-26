@@ -94,6 +94,17 @@ public class BacktestService {
         });
     }
 
+    /** Check that a scan request is runnable (strategy parses, universe resolves) without running it. */
+    public void validate(ScanRequest req) {
+        if (req == null || req.strategy() == null) {
+            throw new IllegalArgumentException("strategy is required");
+        }
+        prepare(req.strategy());
+        if (universes.resolve(req.universe()).symbols().isEmpty()) {
+            throw new IllegalArgumentException("The universe has no symbols");
+        }
+    }
+
     /** Backtest one strategy across a universe; rank, filter and report each symbol's latest signal. */
     public ScanResult scan(ScanRequest req) {
         return scanTimer.record(() -> doScan(req));

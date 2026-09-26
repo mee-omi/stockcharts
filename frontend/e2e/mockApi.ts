@@ -32,6 +32,7 @@ export interface MockState {
   broker: string
   risk: any
   paperCash: number
+  schedules: any[]
 }
 
 const DEFAULT_RISK = { killSwitch: false, maxQuantityPerOrder: 1000, maxOrderValue: 200000, maxOrdersPerDay: 50,
@@ -48,6 +49,7 @@ export async function mockApi(page: Page, init: Partial<MockState> = {}): Promis
     broker: init.broker ?? 'mock',
     risk: init.risk ?? { ...DEFAULT_RISK },
     paperCash: init.paperCash ?? 1_000_000,
+    schedules: init.schedules ?? [],
   }
   // Only the root /ws endpoint: a glob like **/ws/** would also catch Vite's /src/ws/ modules.
   await page.route((url) => url.pathname.startsWith('/ws/') || url.pathname === '/ws', (r) => r.abort())
@@ -100,6 +102,29 @@ export async function mockApi(page: Page, init: Partial<MockState> = {}): Promis
       tradingDay: '2026-09-25', slippagePct: 0.05, misLeverage: 5, squareOffTime: '15:20', marketHoursOnly: true, marketOpen: false })
     if (path === '/paper/reset') { state.paperCash = body?.startingCash ?? 1_000_000; return json(paperAccount()) }
     if (path === '/paper') return json(paperAccount())
+    const run = (id: number) => ({ id: 900 + id, scheduleId: id, scheduleName: 'x', startedAt: Date.parse('2026-09-25T15:35:00+05:30'),
+      durationMs: 1800, status: 'OK', matched: 2, newMatches: 1, message: null,
+      rows: [
+        { symbol: 'TCS', name: 'TCS', signal: 'ENTRY', close: 3800, totalReturnPct: 25, winRatePct: 62.5, trades: 8, profitFactor: 1.8, isNew: true },
+        { symbol: 'RELIANCE', name: 'RIL', signal: 'IN_POSITION', close: 2900, totalReturnPct: 12, winRatePct: 55, trades: 6, profitFactor: 1.4, isNew: false },
+      ] })
+    const runMatch = path.match(/^\/scan-schedules\/(\d+)\/(run|runs)$/)
+    if (runMatch) {
+      const id = Number(runMatch[1])
+      const sched = state.schedules.find((x) => x.id === id)
+      if (runMatch[2] === 'run') { sched.lastRun = run(id); return json(run(id)) }
+      return json(sched?.lastRun ? [sched.lastRun] : [])
+    }
+    if (path === '/scan-schedules' && method === 'POST') {
+      const id = state.schedules.length + 1
+      const sched = { id, name: body.name, scan: body.scan, times: body.times ?? null, intervalMinutes: body.intervalMinutes ?? null,
+        tradingDaysOnly: true, onlyNew: body.onlyNew, topN: body.topN ?? 10, notify: true, enabled: true,
+        description: body.times ? `At ${body.times} IST on trading days` : `Every ${body.intervalMinutes} min during market hours`,
+        nextRunAt: Date.parse('2026-09-28T15:35:00+05:30'), lastRunAt: null, lastRun: null }
+      state.schedules.push(sched)
+      return json(sched)
+    }
+    if (path === '/scan-schedules') return json(state.schedules)
     if (path === '/market/status') {
       return json({ open: false, now: Date.parse('2026-09-25T18:00:00+05:30'),
         nextChange: Date.parse('2026-09-28T09:15:00+05:30'), timezone: 'Asia/Kolkata' })
