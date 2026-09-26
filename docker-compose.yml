@@ -50,6 +50,11 @@ services:
       # valid across database resets; set AUTH_COOKIE_SECURE=true when served over HTTPS.
       # Exchange holidays: the backend's session calendar skips them (same list as the data service).
       NSE_HOLIDAYS: ${NSE_HOLIDAYS:-}
+      PAPER_STARTING_CASH: ${PAPER_STARTING_CASH:-1000000}
+      PAPER_SLIPPAGE_PCT: ${PAPER_SLIPPAGE_PCT:-0.05}
+      PAPER_MIS_LEVERAGE: ${PAPER_MIS_LEVERAGE:-5}
+      PAPER_SQUARE_OFF_TIME: ${PAPER_SQUARE_OFF_TIME:-15:20}
+      PAPER_MARKET_HOURS_ONLY: ${PAPER_MARKET_HOURS_ONLY:-true}
       AUTH_ENABLED: ${AUTH_ENABLED:-true}
       AUTH_SECRET: ${AUTH_SECRET:-}
       AUTH_COOKIE_SECURE: ${AUTH_COOKIE_SECURE:-false}

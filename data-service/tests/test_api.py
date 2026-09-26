@@ -15,8 +15,10 @@ def test_instruments_include_types(client):
 
 def test_historical_validates_arguments(client):
     now = int(time.time() * 1000)
-    ok = client.get("/api/historical/INFY", params={"interval": "15minute", "from": now - 86_400_000, "to": now})
-    assert ok.status_code == 200 and len(ok.json()) > 0
+    # A fixed past session (Thu 21 May 2026, 09:15–15:30 IST): "the last 24h" has no bars on weekends.
+    session_open, session_close = 1_779_335_100_000, 1_779_357_600_000
+    ok = client.get("/api/historical/INFY", params={"interval": "15minute", "from": session_open, "to": session_close})
+    assert ok.status_code == 200 and len(ok.json()) == 25
     bad_interval = client.get("/api/historical/INFY", params={"interval": "2minute", "from": 0, "to": now})
     assert bad_interval.status_code == 400
     bad_range = client.get("/api/historical/INFY", params={"interval": "day", "from": now, "to": now - 1})

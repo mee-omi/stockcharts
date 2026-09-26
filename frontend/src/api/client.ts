@@ -17,6 +17,7 @@ import type {
   Funds,
   HistorySyncInfo,
   Holding,
+  IndicatorResult,
   IndicatorSpec,
   Instrument,
   JournalEntry,
@@ -168,6 +169,22 @@ export async function searchInstruments(query: string): Promise<Instrument[]> {
 
 export async function getIndicatorCatalog(): Promise<CatalogEntry[]> {
   const { data } = await api.get<CatalogEntry[]>('/indicators')
+  return data
+}
+
+/**
+ * Live refresh: recompute indicators with the chart's newest bars (incl. the forming one) and
+ * return the last `tail` points of each line.
+ */
+export async function liveIndicators(
+  symbol: string,
+  timeframe: string,
+  indicators: IndicatorSpec[],
+  bars: Candle[],
+  from?: number,
+  tail = 3,
+): Promise<IndicatorResult[]> {
+  const { data } = await api.post<IndicatorResult[]>('/indicators/live', { symbol, timeframe, indicators, bars, from, tail })
   return data
 }
 

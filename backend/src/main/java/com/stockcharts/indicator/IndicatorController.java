@@ -1,6 +1,7 @@
 package com.stockcharts.indicator;
 
 import com.stockcharts.candle.Candle;
+import com.stockcharts.indicator.dto.IndicatorSpec;
 import com.stockcharts.candle.CandleResponse;
 import com.stockcharts.candle.CandleService;
 import com.stockcharts.candle.Timeframe;
@@ -58,6 +59,62 @@ public class IndicatorController {
                 c.getDescription() != null && !c.getDescription().isBlank() ? c.getDescription() : c.getName(),
                 c.isOverlay(), true, List.of(), List.of("value"))));
         return entries;
+    }
+
+    /**
+     * Live refresh: the chart's latest bars (including the forming one, which storage may not have
+     * yet at higher timeframes) merged over stored history.
+     *
+     * @param from  the start of the chart's range (as sent to /apply), or null for the default
+     * @param bars  up to 10 of the chart's newest bars; they replace stored bars with the same time
+     * @param tail  how many trailing points per line to return (default 3, at most 50)
+     */
+    public record LiveRequest(String symbol, String timeframe, Long from, List<IndicatorSpec> indicators,
+                              List<CandleResponse> bars, Integer tail) {
+    }
+
+    @PostMapping("/live")
+    @Operation(summary = "Recompute indicators with the chart's live bars; returns only the newest points")
+    public List<IndicatorResult> live(@RequestBody LiveRequest request) {
+        if (request.symbol() == null || !instrumentService.exists(request.symbol())) {
+            throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Unknown symbol: " + request.symbol());
+        }
+        if (request.indicators() == null || request.indicators().isEmpty()) {
+            return List.of();
+        }
+        List<CandleResponse> bars = request.bars() == null ? List.of() : request.bars();
+        if (bars.size() > 10) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "At most 10 live bars");
+        }
+        int tail = request.tail() == null ? 3 : Math.max(1, Math.min(50, request.tail()));
+        Timeframe tf;
+        try {
+            tf = Timeframe.fromCode(request.timeframe() == null ? "1m" : request.timeframe());
+        } catch (IllegalArgumentException e) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, e.getMessage());
+        }
+        String symbol = request.symbol().toUpperCase();
+        Instant from = request.from() != null ? Instant.ofEpochMilli(request.from()) : null;
+        Instant to = from != null ? Instant.now() : null;
+
+        java.util.TreeMap<Long, Candle> merged = new java.util.TreeMap<>();
+        for (Candle c : candleService.getCandles(symbol, tf, from, to)) {
+            merged.put(c.getOpenTime().getEpochSecond(), c);
+        }
+        for (CandleResponse b : bars) {
+            merged.put(b.time(), new Candle(symbol, tf, Instant.ofEpochSecond(b.time()),
+                    b.open(), b.high(), b.low(), b.close(), b.volume()));
+        }
+        List<IndicatorResult> results;
+        try {
+            results = engine.apply(tf, new java.util.ArrayList<>(merged.values()), request.indicators());
+        } catch (IllegalArgumentException e) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, e.getMessage());
+        }
+        return results.stream().map(r -> new IndicatorResult(r.key(), r.type(), r.overlay(), r.lines().stream()
+                .map(l -> new IndicatorResult.Line(l.name(),
+                        l.points().subList(Math.max(0, l.points().size() - tail), l.points().size())))
+                .toList())).toList();
     }
 
     @PostMapping("/apply")

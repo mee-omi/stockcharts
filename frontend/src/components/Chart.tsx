@@ -18,14 +18,15 @@ import type {
   ChartType,
   Drawing,
   DrawingTool,
-  IndicatorPoint,
+  IndicatorSpec,
   LiveUpdate,
   Timeframe,
   TradeMarker,
 } from '../api/types'
 import { subscribeTicks } from '../ws/stomp'
-import { fibLevels, heikinAshi, LiveBarBuilder, orderedSegment, snapTime } from '../lib/chartMath'
+import { fibLevels, heikinAshi, LiveBarBuilder, orderedSegment, patchLine, snapTime, type PatchableLine } from '../lib/chartMath'
 import { istChartOptions } from '../lib/ist'
+import { liveIndicators } from '../api/client'
 
 const LINE_COLORS = [
   '#f5a623', '#4caf50', '#e91e63', '#00bcd4', '#9c27b0',
@@ -53,10 +54,14 @@ const baseChartOptions = {
   autoSize: true,
 }
 
-interface LineRef {
+interface LineRef extends PatchableLine {
   series: ISeriesApi<'Line'>
-  points: IndicatorPoint[]
+  /** "<indicator key>:<line name>", e.g. "EMA(20):value", to match live refreshes to their series. */
+  key: string
 }
+
+/** Minimum gap between live indicator refreshes (a new bar refreshes at once). */
+const LIVE_INDICATOR_MS = 2_000
 
 interface Props {
   symbol: string
@@ -75,6 +80,10 @@ interface Props {
   onAddDrawing?: (d: Drawing) => void
   /** Called with a hint while a two-click drawing waits for its second point (null when done). */
   onDrawingHint?: (hint: string | null) => void
+  /** The indicator specs behind `data`, for live refreshes. */
+  indicatorSpecs?: IndicatorSpec[]
+  /** The `from` the chart's data was loaded with (ms), if any. */
+  rangeFrom?: number
 }
 
 function toSeriesMarkers(
@@ -123,6 +132,7 @@ function newId(): string {
 export default function Chart({
   symbol, timeframe, data, visibleCount, replayActive, tradeMarkers,
   chartType = 'candles', compare, drawings, drawingTool = 'none', onAddDrawing, onDrawingHint,
+  indicatorSpecs, rangeFrom,
 }: Props) {
   const mainRef = useRef<HTMLDivElement>(null)
   const oscRef = useRef<HTMLDivElement>(null)
@@ -140,6 +150,9 @@ export default function Chart({
   const addDrawingRef = useRef(onAddDrawing)
   const hintRef = useRef(onDrawingHint)
   const pendingPointRef = useRef<{ time: number; price: number } | null>(null)
+  const liveRef = useRef({ inFlight: false, last: 0, timer: undefined as number | undefined, again: false })
+  const liveArgsRef = useRef({ symbol, timeframe, specs: indicatorSpecs ?? [], rangeFrom })
+  liveArgsRef.current = { symbol, timeframe, specs: indicatorSpecs ?? [], rangeFrom }
   // Bumped whenever the chart is rebuilt so overlay effects (compare, drawings) re-attach.
   const [epoch, setEpoch] = useState(0)
 
@@ -207,30 +220,32 @@ export default function Chart({
 
     const refs: LineRef[] = []
     let colorIdx = 0
-    data.indicators.filter((i) => i.overlay).forEach((ind) =>
+    data.indicators.forEach((ind) => {
+      if (!ind.overlay) return
       ind.lines.forEach((line) => {
         const s = main.addLineSeries({
           color: LINE_COLORS[colorIdx++ % LINE_COLORS.length],
           lineWidth: 2, priceLineVisible: false, lastValueVisible: false,
         })
-        refs.push({ series: s, points: line.points })
-      }),
-    )
+        refs.push({ series: s, points: [...line.points], key: `${ind.key}:${line.name}` })
+      })
+    })
 
     let osc: IChartApi | null = null
     if (oscRef.current && hasOscillators) {
       osc = createChart(oscRef.current, baseChartOptions)
       oscChartRef.current = osc
       let oc = 0
-      data.indicators.filter((i) => !i.overlay).forEach((ind) =>
+      data.indicators.forEach((ind) => {
+        if (ind.overlay) return
         ind.lines.forEach((line) => {
           const s = osc!.addLineSeries({
             color: LINE_COLORS[oc++ % LINE_COLORS.length],
             lineWidth: 2, title: `${ind.type}:${line.name}`,
           })
-          refs.push({ series: s, points: line.points })
-        }),
-      )
+          refs.push({ series: s, points: [...line.points], key: `${ind.key}:${line.name}` })
+        })
+      })
       const sync = (src: IChartApi, dst: IChartApi) =>
         src.timeScale().subscribeVisibleLogicalRangeChange((r) => {
           if (r) dst.timeScale().setVisibleLogicalRange(r)
@@ -373,6 +388,38 @@ export default function Chart({
     }
   }, [drawings, epoch])
 
+  // Live indicators: recompute on the server with the newest bars, at most every LIVE_INDICATOR_MS
+  // (and at once when a bar opens), then patch the tail of each line.
+  const refreshIndicators = useCallback((immediate: boolean) => {
+    const st = liveRef.current
+    const { symbol: sym, timeframe: tf, specs, rangeFrom: from } = liveArgsRef.current
+    if (!sym || !specs.length || !lineRefs.current.length) return
+    if (st.inFlight) { st.again = true; return }
+    const wait = immediate ? 0 : Math.max(0, st.last + LIVE_INDICATOR_MS - Date.now())
+    if (wait > 0) {
+      if (st.timer === undefined) st.timer = window.setTimeout(() => { st.timer = undefined; refreshIndicators(true) }, wait)
+      return
+    }
+    st.inFlight = true
+    st.last = Date.now()
+    const bars = candlesRef.current.slice(-3)
+    liveIndicators(sym, tf, specs, bars, from)
+      .then((results) => {
+        if (liveArgsRef.current.symbol !== sym || liveArgsRef.current.timeframe !== tf) return
+        results.forEach((ind) => ind.lines.forEach((line) => {
+          const lr = lineRefs.current.find((r) => r.key === `${ind.key}:${line.name}`)
+          if (lr) patchLine(lr, line.points)
+        }))
+      })
+      .catch(() => { /* next tick retries */ })
+      .finally(() => {
+        st.inFlight = false
+        if (st.again) { st.again = false; refreshIndicators(false) }
+      })
+  }, [])
+
+  useEffect(() => () => { window.clearTimeout(liveRef.current.timer) }, [])
+
   // Live ticks → update (or roll) the latest bar at the chart's timeframe; paused during replay.
   useEffect(() => {
     if (!symbol) return
@@ -403,6 +450,7 @@ export default function Chart({
         series.update({ time: bar.time as UTCTimestamp, value: bar.close })
       }
       volSeriesRef.current?.update(volumePoint(bar))
+      refreshIndicators(isNew)
     })
     return unsub
   }, [symbol, timeframe, replayActive, chartType, epoch])

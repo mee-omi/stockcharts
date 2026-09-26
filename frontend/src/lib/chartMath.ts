@@ -1,4 +1,4 @@
-import type { Candle, LiveUpdate, Timeframe } from '../api/types'
+import type { Candle, IndicatorPoint, LiveUpdate, Timeframe } from '../api/types'
 import { barStart, sessionSpanBefore } from './ist'
 
 const TF_SECONDS: Record<Timeframe, number> = {
@@ -133,4 +133,43 @@ export function snapTime(times: number[], t: number): number | null {
     else hi = mid
   }
   return t - times[lo] <= times[hi] - t ? times[lo] : times[hi]
+}
+
+/** An indicator line on the chart: its points plus the two series calls used to redraw it. */
+export interface PatchableLine {
+  points: IndicatorPoint[]
+  series: {
+    update: (p: { time: never; value: number }) => void
+    setData: (p: { time: never; value: number }[]) => void
+  }
+}
+
+/**
+ * Merge freshly computed points into a line: the newest point updates in place (or appends);
+ * a change further back (the previous bar settling at a bar close) redraws the whole line.
+ */
+export function patchLine(line: PatchableLine, fresh: IndicatorPoint[]): void {
+  let redraw = false
+  for (const p of fresh) {
+    if (p.value === null) continue
+    const pts = line.points
+    const last = pts[pts.length - 1]
+    if (!last || p.time > last.time) {
+      pts.push(p)
+      line.series.update({ time: p.time as never, value: p.value })
+    } else if (p.time === last.time) {
+      pts[pts.length - 1] = p
+      line.series.update({ time: p.time as never, value: p.value })
+    } else {
+      const idx = pts.findIndex((x) => x.time === p.time)
+      if (idx >= 0 && pts[idx].value !== p.value) {
+        pts[idx] = p
+        redraw = true
+      }
+    }
+  }
+  if (redraw) {
+    line.series.setData(line.points.filter((x) => x.value !== null)
+      .map((x) => ({ time: x.time as never, value: x.value as number })))
+  }
 }

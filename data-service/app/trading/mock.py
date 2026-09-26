@@ -1,4 +1,7 @@
-"""Paper-trading provider — in-memory order book, simulated fills.
+"""Minimal in-memory paper broker for the data service's own API.
+
+The app does not use it: when the broker is "mock", the backend routes orders to its own paper
+broker (live-price fills, charges, margin, persistence; see backend ``paper`` package).
 
 No credentials needed. MARKET orders are filled immediately at the mock seed price.
 LIMIT orders are filled if the limit price is within 1 % of the seed price, otherwise
