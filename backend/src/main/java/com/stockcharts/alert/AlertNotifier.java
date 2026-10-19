@@ -37,9 +37,17 @@ public class AlertNotifier {
     }
 
     public void notify(AlertDtos.AlertEventDto event) {
-        messaging.convertAndSend(TOPIC, event);
-        sendTelegram(event);
-        sendWebhook(event);
+        deliver(TOPIC, event, message(event), event);
+    }
+
+    /**
+     * Push {@code payload} to STOMP {@code topic} and, when configured, send {@code text} to
+     * Telegram and {@code webhookPayload} to the webhook.
+     */
+    public void deliver(String topic, Object payload, String text, Object webhookPayload) {
+        messaging.convertAndSend(topic, payload);
+        sendTelegram(text);
+        sendWebhook(webhookPayload);
     }
 
     static String message(AlertDtos.AlertEventDto e) {
@@ -48,7 +56,7 @@ public class AlertNotifier {
                 + "\nBar: " + IST.format(Instant.ofEpochMilli(e.barTime())) + " IST";
     }
 
-    private void sendTelegram(AlertDtos.AlertEventDto event) {
+    private void sendTelegram(String text) {
         String token = config.getTelegramBotToken();
         String chat = config.getTelegramChatId();
         if (isBlank(token) || isBlank(chat)) {
@@ -56,7 +64,7 @@ public class AlertNotifier {
         }
         http.post()
                 .uri("https://api.telegram.org/bot{token}/sendMessage", token)
-                .bodyValue(Map.of("chat_id", chat, "text", message(event)))
+                .bodyValue(Map.of("chat_id", chat, "text", text))
                 .retrieve()
                 .toBodilessEntity()
                 .timeout(Duration.ofSeconds(10))
@@ -64,14 +72,14 @@ public class AlertNotifier {
                 .subscribe(r -> { }, e -> log.warn("Telegram alert delivery failed: {}", e.getClass().getSimpleName()));
     }
 
-    private void sendWebhook(AlertDtos.AlertEventDto event) {
+    private void sendWebhook(Object payload) {
         String url = config.getWebhookUrl();
         if (isBlank(url)) {
             return;
         }
         http.post()
                 .uri(url)
-                .bodyValue(event)
+                .bodyValue(payload)
                 .retrieve()
                 .toBodilessEntity()
                 .timeout(Duration.ofSeconds(10))

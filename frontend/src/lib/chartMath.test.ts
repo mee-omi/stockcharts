@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { Candle, LiveUpdate } from '../api/types'
-import { fibLevels, heikinAshi, LiveBarBuilder, olderRangeStart, orderedSegment, snapTime } from './chartMath'
+import { fibLevels, heikinAshi, LiveBarBuilder, olderRangeStart, orderedSegment, patchLine, snapTime } from './chartMath'
 
 const c = (time: number, open: number, high: number, low: number, close: number, volume = 100): Candle =>
   ({ time, open, high, low, close, volume })
@@ -76,5 +76,36 @@ describe('drawing helpers', () => {
     expect(olderRangeStart(86_400 * 100, '1d', 5)).toBe(86_400 * 90 * 1000)
     // 500 one-minute bars need two sessions, not 500 calendar minutes (which can fall overnight).
     expect(olderRangeStart(86_400 * 100, '1m', 500)).toBe(86_400 * 94 * 1000)
+  })
+})
+
+describe('patchLine (live indicators)', () => {
+  const fake = (points: { time: number; value: number | null }[]) => {
+    const calls: string[] = []
+    return {
+      calls,
+      line: {
+        points: [...points],
+        series: {
+          update: (p: { time: never; value: number }) => { calls.push(`update ${p.time}=${p.value}`) },
+          setData: (d: { time: never; value: number }[]) => { calls.push(`setData ${d.length}`) },
+        },
+      },
+    }
+  }
+
+  it('updates the forming point in place and appends the next one', () => {
+    const { line, calls } = fake([{ time: 60, value: 1 }, { time: 120, value: 2 }])
+    patchLine(line, [{ time: 60, value: 1 }, { time: 120, value: 2.5 }])
+    patchLine(line, [{ time: 120, value: 2.5 }, { time: 180, value: 3 }])
+    expect(calls).toEqual(['update 120=2.5', 'update 120=2.5', 'update 180=3'])
+    expect(line.points.map((p) => p.value)).toEqual([1, 2.5, 3])
+  })
+
+  it('redraws when an earlier point settles, and skips warm-up nulls', () => {
+    const { line, calls } = fake([{ time: 60, value: 1 }, { time: 120, value: 2 }])
+    patchLine(line, [{ time: 60, value: 1.2 }, { time: 120, value: 2 }, { time: 180, value: null }])
+    expect(calls).toEqual(['update 120=2', 'setData 2'])
+    expect(line.points).toHaveLength(2)
   })
 })

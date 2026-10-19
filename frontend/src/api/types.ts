@@ -175,7 +175,7 @@ export type Timeframe = (typeof TIMEFRAMES)[number]
 export type OrderType = 'MARKET' | 'LIMIT' | 'SL' | 'SL-M'
 export type TransactionType = 'BUY' | 'SELL'
 export type ProductType = 'CNC' | 'MIS' | 'NRML'
-export type OrderStatus = 'PENDING' | 'OPEN' | 'COMPLETE' | 'CANCELLED' | 'REJECTED'
+export type OrderStatus = 'PENDING' | 'OPEN' | 'TRIGGER_PENDING' | 'COMPLETE' | 'CANCELLED' | 'REJECTED'
 
 export interface PlaceOrderRequest {
   symbol: string
@@ -604,4 +604,79 @@ export interface MarketStatus {
   /** Epoch ms of today's close when open, else of the next open. */
   nextChange: number
   timezone: string
+}
+
+// ---- paper trading ----
+export interface PaperAccount {
+  startingCash: number
+  cash: number
+  realizedToday: number
+  chargesToday: number
+  tradingDay: string
+  slippagePct: number
+  misLeverage: number
+  squareOffTime: string
+  marketHoursOnly: boolean
+  marketOpen: boolean
+}
+
+export interface PaperEvent {
+  type: 'fill' | 'cancelled' | 'rejected' | 'reset'
+  order: Order | null
+}
+
+// ---- scheduled scans ----
+export interface ScanRunRow {
+  symbol: string
+  name: string
+  signal: SignalState
+  close: number
+  totalReturnPct: number
+  winRatePct: number
+  trades: number
+  profitFactor: number | null
+  isNew: boolean
+}
+
+export interface ScanRun {
+  id: number
+  scheduleId: number
+  scheduleName: string
+  startedAt: number
+  durationMs: number
+  status: 'OK' | 'FAILED'
+  matched: number
+  newMatches: number
+  rows: ScanRunRow[]
+  message: string | null
+}
+
+export interface ScanScheduleRequest {
+  name?: string
+  scan?: BacktestScanRequest
+  /** IST times "HH:mm", comma-separated; or intervalMinutes during market hours. */
+  times?: string
+  intervalMinutes?: number
+  tradingDaysOnly?: boolean
+  onlyNew?: boolean
+  topN?: number
+  notify?: boolean
+  enabled?: boolean
+}
+
+export interface ScanSchedule {
+  id: number
+  name: string
+  scan: BacktestScanRequest
+  times: string | null
+  intervalMinutes: number | null
+  tradingDaysOnly: boolean
+  onlyNew: boolean
+  topN: number
+  notify: boolean
+  enabled: boolean
+  description: string
+  nextRunAt: number | null
+  lastRunAt: number | null
+  lastRun: ScanRun | null
 }

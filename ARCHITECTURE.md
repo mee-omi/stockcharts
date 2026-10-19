@@ -115,6 +115,16 @@ through configuration, or at runtime from the UI.
   factor, Sharpe, drawdown or trade count, and filtered by minimum trades / win rate / profit factor
   or "actionable signal only". The UI can re-run it every 5/15/60 minutes.
 
+- **Scheduled scans** (`scanschedule` package):
+  - **Timetable:** a saved scan runs at IST times on trading days, or every N minutes during the
+    session.
+  - **Data:** every run uses the latest data; a saved date range becomes a rolling window of the
+    same length.
+  - **History and notifications:** each run is kept (last 30), and the top N matches are sent
+    in-app (`/topic/scans`), to Telegram and to the webhook. "Only new" reports only stocks that
+    weren't in the previous run, and failures are reported too.
+  - **Scheduling:** a due-check every 30 s runs under ShedLock.
+
 ### 2.8 Trading
 - **Order ticket**: MARKET, LIMIT, SL, SL-M; BUY/SELL; CNC, MIS, NRML. Tabs for Orders (with
   cancel), Positions, Holdings, Funds. Quick-trade side panel on the chart (pre-filled in replay).
@@ -122,7 +132,7 @@ through configuration, or at runtime from the UI.
 
 | Broker | Status | Credentials |
 |---|---|---|
-| `mock` (default) | In-memory paper trading, ₹10 lakh virtual cash. MARKET orders fill at a fixed seed price; LIMIT orders within 1% of it fill, others stay OPEN. | none |
+| `mock` (default) | Paper trading in the backend (`paper` package), persisted. Details below. | none |
 | `zerodha` | Real orders via Kite Connect | `api_key` + daily `access_token` |
 | `angelone` | Real orders via SmartAPI | `api_key`, `client_id`, TOTP secret |
 | `groww` | Stub (no public Groww API) | — |
@@ -133,6 +143,19 @@ through configuration, or at runtime from the UI.
   single-use 60 s confirmation token bound to the exact order (`X-Order-Confirmation`; 428
   without it). Limit breaches return 422 with the reasons and count in
   `stockcharts_orders_rejected_total`.
+
+- **Paper trading** (`PaperBroker`, used when the broker is `mock`):
+  - **Fills:** MARKET orders fill at the live price (a fresh tick, else the newest candle) with
+    0.05% adverse slippage, rounded to the ₹0.05 tick. LIMIT, SL and SL-M orders wait and are
+    checked on every tick (plus a 5 s poll). A stop order whose trigger is already through the
+    price is rejected.
+  - **Costs and funds:** every fill pays `ChargesModel` charges. CNC buys need the full value, MIS
+    needs value ÷ 5, open orders block margin, and delivery sells need shares in holdings.
+  - **Market hours:** orders placed outside the session queue for the open. MIS positions are
+    squared off at 15:20 IST, open day orders cancel at 15:30, and CNC buys become holdings the
+    next day (caught up after downtime too).
+  - **Records:** state lives in the V10 tables. Fills are journalled and pushed on
+    `/topic/paper`. Settings are the `PAPER_*` variables, and `POST /paper/reset` starts over.
 
 ### 2.9 Trade journal & portfolio report
 - **Journal**: every order placed through the app that comes back `COMPLETE` is recorded
@@ -180,6 +203,16 @@ NSE convention used by Kite and SmartAPI:
 The frontend renders every chart label in IST (`lib/ist.ts`: axis ticks, crosshair, replay), and
 builds live bars with the same session anchors. "More history" asks for whole sessions rather
 than calendar minutes.
+
+**Live indicators.**
+- While a chart is live, it posts its newest bars (including the forming one) to
+  `POST /indicators/live` at most every 2 s, and at once when a bar opens.
+- The backend merges those bars over stored history and runs the same engine as `/apply`. It
+  returns only the last few points, which the chart patches in. Custom indicators work too.
+- The values match a reload exactly (`LiveIndicatorIntegrationTest`).
+- Loads of the same symbol and timeframe take turns in `CandleService`, so two simultaneous chart
+  loads can't read storage before the other's download has committed
+  (`CandleCoverageConcurrencyTest`).
 
 **History sync** (`HistorySyncService`): at startup and on `stockcharts.history-sync.cron`
 (15:45 IST Mon–Fri) it walks watchlist symbols + configured index universes + live symbols and,
@@ -279,7 +312,9 @@ the client-facing WebSocket. The browser talks only to the backend.
 | `expr` | `Lexer`, `Parser`, `Expr`, `Evaluator`, `ExpressionService` | Sandboxed formula language |
 | `screener` | `ScreenerService`, `IndexUniverses`, `Screener`, `Watchlist` | Universes, parallel scans, saved screeners and watchlists |
 | `alert` | `AlertService`, `AlertNotifier`, `Alert`, `AlertEvent` | Alert CRUD, scheduled evaluation, delivery |
-| `backtest` | `BacktestService`, `BacktestEngine` | Rule-based backtests |
+| `backtest` | `BacktestService`, `BacktestEngine` | Rule-based backtests and universe scans |
+| `scanschedule` | `ScanScheduleService`, `ScanScheduleController` | Scans on an IST timetable, run history, notifications |
+| `paper` | `PaperBroker`, `PaperController` | Simulated account: live fills, pending orders, charges, margin, session rules |
 | `journal` | `JournalService`, `PortfolioReport`, `ChargesModel` | Trade journal, FIFO P&L, charges, tax estimate, CSV |
 | `quote` | `QuoteService` | Last price / day change for watchlists |
 | `uistate` | `UiStateController` | JSON key/value store for layout and drawings |
@@ -301,7 +336,7 @@ trading/           base.py (ABC) + models.py + mock, zerodha, angelone, groww
 ../tests/          pytest: mock data, paper broker, HTTP API, metrics
 ```
 
-### 3.5 Database schema (Flyway `V1`–`V9`)
+### 3.5 Database schema (Flyway `V1`–`V11`)
 
 | Table | Key | Notes |
 |---|---|---|
@@ -316,6 +351,8 @@ trading/           base.py (ABC) + models.py + mock, zerodha, angelone, groww
 | `shedlock` (V8) | `name` | scheduler locks for cluster mode |
 | `app_user` (V9) | `id`; unique `username` | BCrypt password hash, last login |
 | `app_setting` (V9) | `setting_key` | JSON/text settings: `risk.settings`, generated `auth.secret` |
+| `paper_account`, `paper_order`, `paper_position`, `paper_holding` (V10) | — | the paper account: cash, orders (incl. blocked margin), today's positions, holdings |
+| `scan_schedule`, `scan_run` (V11) | `id` | saved scans with timetable and options; per-run matches (JSON) |
 
 The `dev` profile uses in-memory H2 (schema from entities). `PostgresMigrationTest` applies the
 real migrations to Postgres and runs Hibernate schema validation; CI runs it on TimescaleDB.
@@ -390,12 +427,14 @@ filters by close date and broker.
 | Instruments | `GET /instruments?query=` |
 | Candles | `GET /candles/{symbol}?timeframe=&from=&to=` |
 | Quotes | `GET /quotes?symbols=A,B` (≤ 100) |
-| Indicators | `GET /indicators`, `POST /indicators/apply` |
+| Indicators | `GET /indicators`, `POST /indicators/apply`, `POST /indicators/live` |
 | Custom indicators | `GET/POST /custom-indicators`, `PUT/DELETE /custom-indicators/{name}`, `POST /custom-indicators/validate` |
 | Screener | `GET /screener/universes`, `POST /screener/run`, `GET/POST /screener`, `DELETE /screener/{name}`, `POST /screener/{name}/run` |
 | Watchlists | `GET/POST /watchlists`, `GET/DELETE /watchlists/{name}` |
 | Alerts | `GET/POST /alerts`, `PUT/DELETE /alerts/{id}`, `POST /alerts/{id}/status`, `GET /alerts/events`, `POST /alerts/evaluate` |
 | Backtest | `POST /backtest`, `POST /backtest/scan` |
+| Scheduled scans | `GET/POST /scan-schedules`, `GET/PUT/DELETE /scan-schedules/{id}`, `POST /{id}/run`, `GET /{id}/runs` |
+| Paper account | `GET /paper`, `POST /paper/reset` |
 | Journal | `GET/POST /journal`, `PUT/DELETE /journal/{id}`, `POST /journal/sync` |
 | Portfolio | `GET /portfolio/report`, `GET /portfolio/report.csv` (`from`, `to`, `broker`) |
 | UI state | `GET/PUT/DELETE /ui-state/{key}` |
@@ -431,6 +470,7 @@ Data-service internal API: `/health`, `/metrics`, `/api/provider`, `/api/instrum
 | `BACKFILL_DAYS` | backend | `5` |
 | `ALERTS_INTERVAL`, `TELEGRAM_BOT_TOKEN`, `TELEGRAM_CHAT_ID`, `ALERTS_WEBHOOK_URL` | backend | `PT15S`, off |
 | `AUTH_ENABLED`, `AUTH_SECRET`, `AUTH_SESSION_TTL`, `AUTH_COOKIE_SECURE`, `ALLOWED_ORIGINS` | backend | on, generated, `P7D`, `false` (`true` in k8s), same-origin |
+| `PAPER_STARTING_CASH`, `PAPER_SLIPPAGE_PCT`, `PAPER_MIS_LEVERAGE`, `PAPER_SQUARE_OFF_TIME`, `PAPER_MARKET_HOURS_ONLY` | backend | ₹10 lakh, 0.05, 5, 15:20, `true` |
 | `RATE_LIMIT_ENABLED`, `RATE_LIMIT_RPM`, `RATE_LIMIT_TRADING_RPM`, `RATE_LIMIT_HEAVY_RPM`, `RATE_LIMIT_TRUST_XFF` | backend | on, 600, 60, 30, `false` (`true` in compose/k8s) |
 | `CLUSTER_ENABLED`, `STOMP_RELAY_ENABLED`, `STOMP_RELAY_HOST/PORT/LOGIN/PASSCODE` | backend | off |
 | `SPRING_PROFILES_ACTIVE=json` (compose: `BACKEND_PROFILES`) | backend | text logs |
@@ -472,12 +512,15 @@ Data-service internal API: `/health`, `/metrics`, `/api/provider`, `/api/instrum
    sessions (Muhurat trading) and exchange-specific timings (MCX, currency) are not modelled.
    Charts keep time gaps for nights and weekends as the broker data has them (no "session-only"
    x-axis compression).
-4. **Paper broker realism**: fills at static seed prices (not the live mock price), no brokerage,
-   in-memory state.
+4. **Paper trading**:
+   - Fills are all-or-nothing at one price, with no order-book depth or partial fills.
+   - Slippage is a fixed percentage.
+   - Holdings carry no corporate actions (splits, dividends).
+   - F&O and NRML orders aren't simulated.
 5. **Live data:** KiteTicker and SmartWebSocket V2 are implemented against the SDKs but untested
    against live accounts here; Zerodha access tokens / enctokens still need a manual daily
-   refresh (Kite's login flow requires a person); indicator
-   lines do not update live (only the price bars do).
+   refresh (Kite's login flow requires a person). Live indicators refresh about every 2 s on the
+   server, not on every tick.
 6. **Order safety**: limits and the kill switch act only on orders placed through this app (not
    orders placed in the broker's own app). The daily loss uses the journal and broker positions
    (charges are estimated). No bracket/cover/GTT orders.

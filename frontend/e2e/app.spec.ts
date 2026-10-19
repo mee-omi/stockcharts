@@ -186,3 +186,47 @@ test('kill switch from the risk tab blocks new orders', async ({ page }) => {
   await page.getByRole('button', { name: 'BUY TCS' }).click()
   await expect(page.locator('.ci-status.err')).toContainText('Kill switch is ON')
 })
+
+test('paper account shows the simulation rules and can be reset', async ({ page }) => {
+  const api = await mockApi(page)
+  await page.goto('/')
+  await page.getByRole('button', { name: 'Trade', exact: true }).click()
+  await page.getByRole('button', { name: 'Funds', exact: true }).click()
+  const card = page.locator('.paper-card')
+  await expect(card).toContainText('Paper trading')
+  await expect(card).toContainText('squared off at 15:20 IST')
+  await expect(card).toContainText('market closed · orders queue for the open')
+
+  await card.getByPlaceholder(/Starting cash/).fill('500000')
+  page.once('dialog', (d) => d.accept())
+  await card.getByRole('button', { name: 'Reset paper account' }).click()
+  await expect(card).toContainText('Paper account reset')
+  expect(api.paperCash).toBe(500000)
+  await expect(page.locator('.funds-grid')).toContainText('5,00,000')
+})
+
+test('a scan can be scheduled, run and its history shown', async ({ page }) => {
+  const api = await mockApi(page)
+  await page.goto('/')
+  await page.getByRole('button', { name: 'Backtest', exact: true }).click()
+  await page.getByRole('tab', { name: 'Scan universe' }).click()
+  await page.getByText('Schedule this scan').click()
+  await page.getByPlaceholder('e.g. EMA cross NIFTY 50').fill('EMA cross N50')
+  await page.getByRole('button', { name: 'Save schedule' }).click()
+
+  const created = api.requests.find((r) => r.method === 'POST' && r.path === '/scan-schedules')!
+  expect(created.body).toMatchObject({ name: 'EMA cross N50', times: '15:35', onlyNew: true, topN: 10 })
+  expect(created.body.scan.universe).toEqual({ type: 'index', value: 'NIFTY50' })
+
+  // Lands on the Scheduled tab.
+  const row = page.locator('.schedule-row')
+  await expect(row).toContainText('EMA cross N50')
+  await expect(row).toContainText('At 15:35 IST on trading days')
+  await expect(row).toContainText('Next: 28 Sept 2026, 15:35 IST')
+
+  await row.getByRole('button', { name: 'Run now' }).click()
+  await expect(row).toContainText('2 matched, 1 new')
+  await row.getByRole('button', { name: 'History' }).click()
+  await expect(row.locator('.scan-run-table')).toContainText('TCS')
+  await expect(row.locator('.new-badge')).toHaveCount(1)
+})

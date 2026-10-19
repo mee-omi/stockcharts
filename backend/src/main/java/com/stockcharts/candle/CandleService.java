@@ -37,8 +37,14 @@ public class CandleService {
         this.calendar = calendar;
     }
 
-    /** Raw entities for a (symbol, timeframe, range), backfilling first if needed. */
-    @Transactional
+    /**
+     * Raw entities for a (symbol, timeframe, range), backfilling first if needed.
+     * <p>
+     * Not one transaction on purpose: downloads are saved (and committed) before the read, and
+     * callers for the same symbol and timeframe take turns. Otherwise a second chart load arriving
+     * while the first is downloading would see the gap as "already attempted", skip it, and read
+     * storage before the first commits, getting only the few bars built from live ticks.
+     */
     public List<Candle> getCandles(String symbolRaw, Timeframe tf, Instant from, Instant to) {
         String symbol = symbolRaw.toUpperCase();
         if (from == null || to == null) {
@@ -48,7 +54,10 @@ public class CandleService {
                     : (long) props.getBackfillDays() * 24 * 3600 * 1000;
             from = to.minusMillis(span);
         }
-        ensureCoverage(symbol, tf, from, to);
+        Object lock = coverageLocks.computeIfAbsent(symbol + "|" + tf.getCode(), k -> new Object());
+        synchronized (lock) {
+            ensureCoverage(symbol, tf, from, to);
+        }
         return repository.findBySymbolAndTimeframeAndOpenTimeBetweenOrderByOpenTimeAsc(symbol, tf, from, to);
     }
 
@@ -95,6 +104,7 @@ public class CandleService {
     }
 
     private final ConcurrentHashMap<String, Instant> lastAttempt = new ConcurrentHashMap<>();
+    private final ConcurrentHashMap<String, Object> coverageLocks = new ConcurrentHashMap<>();
 
     /** True (and records the attempt) unless the same gap was tried within {@code minGap}. */
     private boolean attempt(String symbol, Timeframe tf, String kind, Duration minGap) {

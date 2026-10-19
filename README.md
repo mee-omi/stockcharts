@@ -95,6 +95,8 @@ Copy `.env.example` to `.env`. Key settings:
 | `DATA_SERVICE_URL` | `http://localhost:8000` | Where the backend reaches the data service |
 | `POSTGRES_*` | `stockcharts` | DB host/port/name/user/password |
 | `TRADING_BROKER` | `mock` | `mock` (paper), `zerodha`, `angelone` (credentials in `.env.example`) |
+| `PAPER_STARTING_CASH` / `_SLIPPAGE_PCT` / `_MIS_LEVERAGE` / `_SQUARE_OFF_TIME` | 1000000 / 0.05 / 5 / 15:20 | Paper-trading account settings |
+| `PAPER_MARKET_HOURS_ONLY` | `true` | Paper orders fill only in the NSE session (`false` with `MOCK_ALWAYS_OPEN=true` for a 24/7 demo) |
 | `NSE_HOLIDAYS` | _(empty)_ | Exchange holidays (YYYY-MM-DD, comma-separated): no bars expected, feeds stay idle |
 | `MOCK_ALWAYS_OPEN` | `false` | The mock market follows the NSE session (09:15–15:30 IST); `true` = 24/7 |
 | `LIVE_SYMBOLS` | 5 large caps | Always streamed; any symbol a client opens is added automatically (cap `LIVE_MAX_SYMBOLS`, 100) |
@@ -154,6 +156,9 @@ Base path `/api/v1` (full schema at `/swagger-ui.html`):
 | GET/POST/PUT/DELETE | `/alerts`, `/alerts/{id}/status`, `/alerts/events` | Alerts and trigger history; WS topic `/topic/alerts` |
 | POST | `/backtest` | Run a rule-based backtest (entry/exit expressions, stop/target, costs) |
 | POST | `/backtest/scan` | Backtest a strategy across a universe; rank, filter, latest-bar signals |
+| GET/POST/PUT/DELETE | `/scan-schedules`, `/{id}/run`, `/{id}/runs` | Scheduled scans and their run history |
+| GET/POST | `/paper`, `/paper/reset` | Paper account (used when the broker is `mock`) |
+| POST | `/indicators/live` | Recompute indicators with the chart's live bars (newest points only) |
 | GET/POST | `/history-sync`, `/history-sync/run` | Scheduled broker-history download: status / run now |
 | GET/POST/PUT/DELETE | `/journal`, `/journal/sync` | Trade journal (filled orders are recorded automatically) |
 | GET | `/portfolio/report`, `/portfolio/report.csv` | Realised P&L (FIFO), charges, STCG/LTCG/intraday, tax estimate |
@@ -244,6 +249,20 @@ For native app-store builds, wrap the PWA with Capacitor (not included).
   drawdown…), filtered (min trades / win rate / profit factor) and show each symbol's signal on the
   latest bar — *buy/short at next open*, *sell/cover at next open*, or *holding* with open P&L.
   Optionally re-runs every 5/15/60 minutes while the page is open.
+- **Scheduled scans** (Backtest → *Scan universe* → *Schedule this scan*; list under *Scheduled*):
+  - Runs at IST times such as `09:30, 15:35` on trading days, or every 5–60 min during market hours.
+  - Each run uses the latest data, keeps a history, and notifies the top matches in-app, on
+    Telegram and to the webhook.
+  - "Only new" reports just the stocks that weren't in the previous run.
+- **Paper trading** (broker `mock`) behaves like a real account:
+  - Fills happen at the live price (+0.05% slippage), and limit and stop orders wait for the price.
+  - Every fill pays brokerage and taxes.
+  - Funds are checked: CNC needs the full value, MIS 5× margin.
+  - MIS is squared off at 15:20 IST, day orders cancel at the close, and CNC buys become holdings
+    the next day.
+  - The account survives restarts and can be reset from Trade → Funds.
+- **Live indicators**: indicator lines (EMA, RSI, custom formulas…) update with the price about every
+  2 s while the chart is live, with the same values a reload would show.
 - **Portfolio** matches journalled fills FIFO per symbol and classifies each closed lot as intraday
   (same IST day or MIS), STCG or LTCG (held > 12 months). Charges and the per-financial-year tax
   estimate use the rates listed in the report's "How this is calculated" section — they are

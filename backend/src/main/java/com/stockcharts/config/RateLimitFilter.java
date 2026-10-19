@@ -69,10 +69,12 @@ public class RateLimitFilter extends OncePerRequestFilter {
             return Tier.AUTH;
         }
         if (write && (path.startsWith("/api/v1/trading/") || path.equals("/api/v1/broker")
+                || path.equals("/api/v1/paper/reset")
                 || path.equals("/api/v1/datasource"))) {
             return Tier.TRADING;
         }
-        if (write && (path.startsWith("/api/v1/screener/") && path.endsWith("/run")
+        if (write && ((path.startsWith("/api/v1/screener/") || path.startsWith("/api/v1/scan-schedules/"))
+                && path.endsWith("/run")
                 || path.startsWith("/api/v1/backtest") || path.equals("/api/v1/alerts/evaluate")
                 || path.equals("/api/v1/history-sync/run"))) {
             return Tier.HEAVY;

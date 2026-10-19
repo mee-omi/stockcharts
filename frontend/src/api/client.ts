@@ -17,6 +17,7 @@ import type {
   Funds,
   HistorySyncInfo,
   Holding,
+  IndicatorResult,
   IndicatorSpec,
   Instrument,
   JournalEntry,
@@ -27,6 +28,10 @@ import type {
   ModifyOrderRequest,
   Order,
   OrderPreview,
+  PaperAccount,
+  ScanRun,
+  ScanSchedule,
+  ScanScheduleRequest,
   PlaceOrderRequest,
   RiskSettings,
   RiskState,
@@ -64,6 +69,47 @@ export function apiErrorMessage(e: any, fallback = 'Request failed'): string {
 
 export async function getMarketStatus(): Promise<MarketStatus> {
   const { data } = await api.get<MarketStatus>('/market/status')
+  return data
+}
+
+// ---- scheduled scans ----
+export async function listScanSchedules(): Promise<ScanSchedule[]> {
+  const { data } = await api.get<ScanSchedule[]>('/scan-schedules')
+  return data
+}
+
+export async function createScanSchedule(req: ScanScheduleRequest): Promise<ScanSchedule> {
+  const { data } = await api.post<ScanSchedule>('/scan-schedules', req)
+  return data
+}
+
+export async function updateScanSchedule(id: number, req: ScanScheduleRequest): Promise<ScanSchedule> {
+  const { data } = await api.put<ScanSchedule>(`/scan-schedules/${id}`, req)
+  return data
+}
+
+export async function deleteScanSchedule(id: number): Promise<void> {
+  await api.delete(`/scan-schedules/${id}`)
+}
+
+export async function runScanScheduleNow(id: number): Promise<ScanRun> {
+  const { data } = await api.post<ScanRun>(`/scan-schedules/${id}/run`, undefined, { timeout: 300_000 })
+  return data
+}
+
+export async function getScanRuns(id: number): Promise<ScanRun[]> {
+  const { data } = await api.get<ScanRun[]>(`/scan-schedules/${id}/runs`)
+  return data
+}
+
+// ---- paper trading ----
+export async function getPaperAccount(): Promise<PaperAccount> {
+  const { data } = await api.get<PaperAccount>('/paper')
+  return data
+}
+
+export async function resetPaperAccount(startingCash?: number): Promise<PaperAccount> {
+  const { data } = await api.post<PaperAccount>('/paper/reset', { startingCash })
   return data
 }
 
@@ -123,6 +169,22 @@ export async function searchInstruments(query: string): Promise<Instrument[]> {
 
 export async function getIndicatorCatalog(): Promise<CatalogEntry[]> {
   const { data } = await api.get<CatalogEntry[]>('/indicators')
+  return data
+}
+
+/**
+ * Live refresh: recompute indicators with the chart's newest bars (incl. the forming one) and
+ * return the last `tail` points of each line.
+ */
+export async function liveIndicators(
+  symbol: string,
+  timeframe: string,
+  indicators: IndicatorSpec[],
+  bars: Candle[],
+  from?: number,
+  tail = 3,
+): Promise<IndicatorResult[]> {
+  const { data } = await api.post<IndicatorResult[]>('/indicators/live', { symbol, timeframe, indicators, bars, from, tail })
   return data
 }
 

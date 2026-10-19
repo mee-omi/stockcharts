@@ -399,6 +399,8 @@ export default function App() {
                 drawingTool={tool}
                 onAddDrawing={(d) => saveDrawings([...drawings, d])}
                 onDrawingHint={setDrawHint}
+                indicatorSpecs={indicators}
+                rangeFrom={rangeFrom}
               />
             </section>
 

@@ -21,6 +21,65 @@ public class AppProperties {
     private final Cluster cluster = new Cluster();
     private final HistorySync historySync = new HistorySync();
     private final Auth auth = new Auth();
+    private final Paper paper = new Paper();
+
+    /** Paper (simulated) trading, used when the trading broker is "mock". */
+    public static class Paper {
+        /** Cash a new or reset account starts with (₹). */
+        private double startingCash = 1_000_000;
+        /** Adverse slippage applied to market fills, in percent of the price. */
+        private double slippagePct = 0.05;
+        /** Intraday (MIS) leverage: margin blocked = value / leverage. */
+        private double misLeverage = 5;
+        /** IST time at which open MIS positions are squared off. */
+        private java.time.LocalTime squareOffTime = java.time.LocalTime.of(15, 20);
+        /** Fill only during the NSE session; orders placed outside it wait for the open. */
+        private boolean marketHoursOnly = true;
+
+        public double getStartingCash() {
+            return startingCash;
+        }
+
+        public void setStartingCash(double startingCash) {
+            this.startingCash = startingCash;
+        }
+
+        public double getSlippagePct() {
+            return slippagePct;
+        }
+
+        public void setSlippagePct(double slippagePct) {
+            this.slippagePct = slippagePct;
+        }
+
+        public double getMisLeverage() {
+            return misLeverage;
+        }
+
+        public void setMisLeverage(double misLeverage) {
+            this.misLeverage = misLeverage;
+        }
+
+        public java.time.LocalTime getSquareOffTime() {
+            return squareOffTime;
+        }
+
+        public void setSquareOffTime(java.time.LocalTime squareOffTime) {
+            this.squareOffTime = squareOffTime;
+        }
+
+        public boolean isMarketHoursOnly() {
+            return marketHoursOnly;
+        }
+
+        public void setMarketHoursOnly(boolean marketHoursOnly) {
+            this.marketHoursOnly = marketHoursOnly;
+        }
+    }
+
+    public Paper getPaper() {
+        return paper;
+    }
     /** Browser origins allowed to call the API / open the WebSocket cross-origin (same-origin always works). */
     private List<String> allowedOrigins = List.of();
 

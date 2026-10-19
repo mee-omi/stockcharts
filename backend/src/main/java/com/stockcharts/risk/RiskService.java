@@ -6,7 +6,7 @@ import com.github.benmanes.caffeine.cache.Caffeine;
 import com.stockcharts.auth.SignedTokens;
 import com.stockcharts.journal.JournalRepository;
 import com.stockcharts.journal.PortfolioReport;
-import com.stockcharts.quote.QuoteService;
+import com.stockcharts.quote.PriceSource;
 import com.stockcharts.settings.AppSetting;
 import com.stockcharts.settings.AppSettingRepository;
 import com.stockcharts.trading.TradingClient;
@@ -57,7 +57,7 @@ public class RiskService {
 
     private final AppSettingRepository settingsRepo;
     private final TradingClient trading;
-    private final QuoteService quotes;
+    private final PriceSource prices;
     private final JournalRepository journal;
     private final SignedTokens tokens;
     private final ObjectMapper mapper;
@@ -65,11 +65,11 @@ public class RiskService {
     private final Cache<String, Boolean> usedTokens = Caffeine.newBuilder()
             .expireAfterWrite(CONFIRM_TTL.multipliedBy(2)).maximumSize(10_000).build();
 
-    public RiskService(AppSettingRepository settingsRepo, TradingClient trading, QuoteService quotes,
+    public RiskService(AppSettingRepository settingsRepo, TradingClient trading, PriceSource prices,
                        JournalRepository journal, SignedTokens tokens, ObjectMapper mapper, MeterRegistry meters) {
         this.settingsRepo = settingsRepo;
         this.trading = trading;
-        this.quotes = quotes;
+        this.prices = prices;
         this.journal = journal;
         this.tokens = tokens;
         this.mapper = mapper;
@@ -293,9 +293,9 @@ public class RiskService {
             return req.triggerPrice();
         }
         try {
-            List<QuoteService.Quote> q = quotes.quotes(List.of(req.symbol()));
-            if (!q.isEmpty() && q.get(0).ltp() != null) {
-                return q.get(0).ltp();
+            java.util.OptionalDouble ltp = prices.ltp(req.symbol());
+            if (ltp.isPresent()) {
+                return ltp.getAsDouble();
             }
         } catch (Exception e) {
             warnings.add("Last price unavailable: " + e.getMessage());
